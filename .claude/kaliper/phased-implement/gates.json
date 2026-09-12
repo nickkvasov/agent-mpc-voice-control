@@ -1,0 +1,7 @@
+{
+  "$comment": "The gate commands for agent-mpc-voice-control-1. kaliper:phased-implement reads this file and never invents a command: an empty array or a null means UNCONFIGURED, and the skill reports that gate as NOT RUN rather than guessing. Detected from package.json at init; edit by hand from here on — nothing replaces it without --redetect-gates. UNCONFIGURED AT INIT: fast, final, live — fill these in before the first run.",
+  "packageManager": null,
+  "fast": [],
+  "final": [],
+  "live": null
+}
