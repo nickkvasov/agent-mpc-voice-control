@@ -39,22 +39,52 @@ export interface QueueState {
 export const EMPTY_QUEUE: QueueState = { items: [], currentVideoId: null };
 
 let seq = 0;
+/**
+ * Keys are drawn from two monotonic counters that never reuse a value — one
+ * climbing for appends, one falling for "play next".
+ *
+ * Computing a key from the LIVE entries instead let a removed-but-restorable
+ * entry share a key with a new one: prepend B, remove B, prepend C, then undo
+ * B, and both held the same key, so their order depended on which was inserted
+ * into the array first (Gate C). A counter cannot collide with something it
+ * has already issued.
+ */
+let ceiling = 0;
+let floor = 0;
+
 export function newEntry(videoId: string, order?: number): QueueEntry {
   seq += 1;
-  return { entryId: `q${String(seq)}`, videoId, order: order ?? seq };
+  if (order !== undefined) return { entryId: `q${String(seq)}`, videoId, order };
+  ceiling += 1;
+  return { entryId: `q${String(seq)}`, videoId, order: ceiling };
+}
+
+export function nextKeyBefore(): number {
+  floor -= 1;
+  return floor;
 }
 
 export function __resetQueueIds(): void {
   seq = 0;
+  ceiling = 0;
+  floor = 0;
 }
 
-/** Keeps the list in key order; the only place ordering is decided. */
+/**
+ * Keeps the list in key order.
+ *
+ * The entry id breaks ties deterministically. Two keys should never be equal,
+ * but if they ever were, falling back to array position would make the result
+ * depend on the order things were restored in — the very property the key
+ * exists to remove.
+ */
 export function sorted(items: readonly QueueEntry[]): readonly QueueEntry[] {
-  return [...items].sort((a, b) => a.order - b.order);
+  return [...items].sort((a, b) => a.order - b.order || entrySeq(a) - entrySeq(b));
 }
 
-function lowestOrder(items: readonly QueueEntry[]): number {
-  return items.reduce((m, e) => Math.min(m, e.order), Number.POSITIVE_INFINITY);
+function entrySeq(e: QueueEntry): number {
+  const n = Number(e.entryId.replace(/^q/, ''));
+  return Number.isFinite(n) ? n : 0;
 }
 
 export function add(
@@ -74,14 +104,12 @@ export function add(
       `That would add ${String(videoIds.length)} videos to the queue. Confirm that count to go ahead.`,
     );
   }
-  // 'next' needs keys below everything present; midpoints keep them distinct
-  // without renumbering anything that already exists.
-  const base = position === 'next' ? lowestOrder(q.items) : Number.NaN;
-  const entries = videoIds.map((id, i) =>
-    position === 'next' && Number.isFinite(base)
-      ? newEntry(id, base - (videoIds.length - i) / (videoIds.length + 1))
-      : newEntry(id),
-  );
+  const entries =
+    position === 'next'
+      // Reversed so the first named video ends up first once sorted: each call
+      // to nextKeyBefore returns a lower key than the last.
+      ? [...videoIds].reverse().map((id) => newEntry(id, nextKeyBefore())).reverse()
+      : videoIds.map((id) => newEntry(id));
   return ok({ ...q, items: sorted([...q.items, ...entries]) });
 }
 
@@ -134,10 +162,21 @@ export function reorder(q: QueueState, entryId: string, toIndex: number): ToolRe
       `Position ${String(toIndex)} is outside the queue, which holds ${String(q.items.length)}.`,
     );
   }
-  const items = [...q.items];
-  const [moved] = items.splice(from, 1);
-  items.splice(toIndex, 0, moved as QueueEntry);
-  return ok({ ...q, items });
+  // The key must move with it. Splicing the array alone was silently undone by
+  // the next sort, so an explicit reorder simply vanished (Gate C).
+  const without = q.items.filter((e) => e.entryId !== entryId);
+  const before = toIndex > 0 ? without[toIndex - 1] : undefined;
+  const after = without[toIndex];
+  const order =
+    before === undefined && after === undefined
+      ? (q.items[from] as QueueEntry).order
+      : before === undefined
+        ? nextKeyBefore()
+        : after === undefined
+          ? newEntry('', undefined).order
+          : (before.order + after.order) / 2;
+  const moved: QueueEntry = { ...(q.items[from] as QueueEntry), order };
+  return ok({ ...q, items: sorted([...without, moved]) });
 }
 
 /** Clearing discards what the person built, so above the threshold it confirms. */

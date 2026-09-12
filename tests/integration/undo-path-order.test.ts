@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyQueueUndo } from '../../src/queue/restore.ts';
 import type { Effect } from '../../src/activity/effects.ts';
-import type { QueueState } from '../../src/queue/queue.ts';
+import {
+  add, removeEntries, reorder, EMPTY_QUEUE, __resetQueueIds, type QueueState,
+} from '../../src/queue/queue.ts';
 
 /**
  * Drives the function the Undo handler actually calls.
@@ -61,5 +63,51 @@ describe('applyQueueUndo', () => {
   it('returns null when nothing changed, so the caller refuses instead of claiming success', () => {
     expect(applyQueueUndo(q(['q2', 'B', 2]), removal('q2', 'B', 2))).toBeNull();
     expect(applyQueueUndo(q(['q1', 'A', 1]), addition('q9', 'Z', 9))).toBeNull();
+  });
+});
+
+describe('Gate C round 5: keys survive reorder and never collide', () => {
+  it('an explicit reorder is not undone by the next sort', () => {
+    __resetQueueIds();
+    const built = add(EMPTY_QUEUE, ['A', 'B', 'C']);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const cId = built.value.items[2]?.entryId as string;
+    const moved = reorder(built.value, cId, 0);
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+    expect(ids(moved.value)).toEqual(['C', 'A', 'B']);
+    // Appending must not resurrect the original order.
+    const appended = add(moved.value, ['D']);
+    if (appended.ok) expect(ids(appended.value)).toEqual(['C', 'A', 'B', 'D']);
+  });
+
+  it('a prepend cannot reuse the key of a removed-but-restorable entry', () => {
+    __resetQueueIds();
+    const withA = add(EMPTY_QUEUE, ['A']);
+    if (!withA.ok) return;
+    const withB = add(withA.value, ['B'], 'next');
+    if (!withB.ok) return;
+    const bEntry = withB.value.items[0];
+    const bKey = bEntry?.order as number;
+    const removedB = removeEntries(withB.value, [bEntry?.entryId as string]);
+    if (!removedB.ok) return;
+    const withC = add(removedB.value, ['C'], 'next');
+    if (!withC.ok) return;
+    const cKey = withC.value.items[0]?.order as number;
+    // Distinct keys, so restoring B cannot depend on insertion order.
+    expect(cKey).not.toBe(bKey);
+    const restored = applyQueueUndo(withC.value, {
+      kind: 'queue_occurrence', entryId: bEntry?.entryId as string, videoId: 'B', added: false, order: bKey,
+    }) as QueueState;
+    expect(ids(restored)).toEqual(['C', 'B', 'A']);
+    // And removing C then restoring it must give the same answer back.
+    const cEntry = restored.items[0];
+    const withoutC = removeEntries(restored, [cEntry?.entryId as string]);
+    if (!withoutC.ok) return;
+    const back = applyQueueUndo(withoutC.value, {
+      kind: 'queue_occurrence', entryId: cEntry?.entryId as string, videoId: 'C', added: false, order: cEntry?.order as number,
+    }) as QueueState;
+    expect(ids(back)).toEqual(['C', 'B', 'A']);
   });
 });
