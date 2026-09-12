@@ -50,7 +50,10 @@ export function eligibility(entry: EntryLike, later: readonly EntryLike[]): Undo
   const container = containerOf(entry.effect);
 
   for (const l of later) {
-    if (l.sequence <= entry.sequence || l.effect === null || l.result === 'failed') continue;
+    // An action that was itself undone no longer blocks anything. Without this
+    // the record kept saying a video "was removed by a later action" after that
+    // removal had been reversed, and hid an Undo that would now work (Gate C).
+    if (l.sequence <= entry.sequence || l.effect === null || l.result === 'failed' || l.undone) continue;
 
     // (2) The identity the inverse needs was destroyed.
     if (container !== null && l.effect.kind === 'collection_existence' && !l.effect.created && `collection:${l.effect.collectionId}` === container) {

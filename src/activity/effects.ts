@@ -27,12 +27,21 @@ export type Effect =
       readonly entryId: string;
       readonly added: boolean;
       /**
-       * Enough to put it BACK. A removal's inverse needs the video and the
-       * position it held; without them Undo could be offered and never able to
-       * restore anything (Gate C).
+       * Enough to put it BACK. A removal's inverse needs the video and where it
+       * sat; without them Undo could be offered and never restore anything.
+       *
+       * TWO anchors, not a numeric index: the entry it followed and the one it
+       * preceded. A saved index goes stale the moment anything before it moves
+       * — with [A,B,C], removing B then A and undoing both rebuilt [A,C,B].
+       * One anchor is not enough either: when B is restored, A is still absent,
+       * so the trailing anchor (C) is what puts B back in the right place.
+       * `null` on either side means it was at that end. The index survives only
+       * as a last resort when both anchors are gone.
        */
       readonly videoId: string;
       readonly index: number;
+      readonly afterEntryId: string | null;
+      readonly beforeEntryId: string | null;
     }
   | { readonly kind: 'tag'; readonly videoId: string; readonly tag: string; readonly added: boolean }
   | { readonly kind: 'label'; readonly videoId: string; readonly from: string | null; readonly to: string | null };

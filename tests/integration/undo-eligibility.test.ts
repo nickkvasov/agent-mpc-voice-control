@@ -45,8 +45,8 @@ describe('undo eligibility', () => {
   });
 
   it('case 5: queue X then clear the queue — blocked', () => {
-    const queued = entry(1, { kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', index: 0 });
-    const cleared = entry(2, { kind: 'queue_occurrence', entryId: 'q1', added: false, videoId: 'X', index: 0 });
+    const queued = entry(1, { kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', index: 0, afterEntryId: null, beforeEntryId: null });
+    const cleared = entry(2, { kind: 'queue_occurrence', entryId: 'q1', added: false, videoId: 'X', index: 0, afterEntryId: null, beforeEntryId: null });
     expect(eligibility(queued, [cleared]).state).toBe('superseded');
   });
 
@@ -83,5 +83,25 @@ describe('undo eligibility', () => {
     const tagA = entry(1, { kind: 'tag', videoId: 'X', tag: 'a', added: true });
     const tagB = entry(2, { kind: 'tag', videoId: 'X', tag: 'b', added: true });
     expect(eligibility(tagA, [tagB]).state).toBe('undoable');
+  });
+});
+
+describe('Gate C round 2: an undone blocker stops blocking', () => {
+  const addX = entry(1, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true });
+
+  it('a removal that was itself undone no longer supersedes the addition', () => {
+    const removal = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false });
+    // While the removal stands, the addition is superseded.
+    expect(eligibility(addX, [removal]).state).toBe('superseded');
+    // Once that removal is undone, the addition is undoable again — and the
+    // record must stop saying X "was removed by a later action".
+    expect(eligibility(addX, [{ ...removal, undone: true }]).state).toBe('undoable');
+  });
+
+  it('a still-standing later rename keeps blocking', () => {
+    const first = entry(1, { kind: 'collection_name', collectionId: 'C', from: 'C', to: 'D' });
+    const second = entry(2, { kind: 'collection_name', collectionId: 'C', from: 'D', to: 'E' });
+    expect(eligibility(first, [second]).state).toBe('superseded');
+    expect(eligibility(first, [{ ...second, undone: true }]).state).toBe('undoable');
   });
 });

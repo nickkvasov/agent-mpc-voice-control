@@ -25,6 +25,33 @@ import { setCaptions } from './player/tools/captions.ts';
 import type { YouTubePlayer } from './player/player.ts';
 import { isRefusal, type ToolResult } from './mcp/result.ts';
 
+/** The entry a given one follows, or null when it is first. */
+function neighbourBefore(items: readonly { entryId: string }[], entryId: string): string | null {
+  const i = items.findIndex((e) => e.entryId === entryId);
+  return i <= 0 ? null : (items[i - 1]?.entryId ?? null);
+}
+
+/** The entry a given one precedes, or null when it is last. */
+function neighbourAfter(items: readonly { entryId: string }[], entryId: string): string | null {
+  const i = items.findIndex((e) => e.entryId === entryId);
+  return i === -1 || i === items.length - 1 ? null : (items[i + 1]?.entryId ?? null);
+}
+
+/** Where a restored entry belongs, preferring anchors over a stale index. */
+export function restorePosition(
+  items: readonly { entryId: string }[],
+  anchors: { afterEntryId: string | null; beforeEntryId: string | null; index: number },
+): number {
+  if (anchors.afterEntryId === null) return 0;
+  const after = items.findIndex((e) => e.entryId === anchors.afterEntryId);
+  if (after !== -1) return after + 1;
+  if (anchors.beforeEntryId !== null) {
+    const before = items.findIndex((e) => e.entryId === anchors.beforeEntryId);
+    if (before !== -1) return before;
+  }
+  return Math.min(Math.max(anchors.index, 0), items.length);
+}
+
 /** Local calls and agent calls write to the same record (SC-006). */
 const recorder = new ActivityRecorder(createInMemoryActivityStore());
 
@@ -241,6 +268,8 @@ export function App() {
                     added: true,
                     videoId: appeared.videoId,
                     index: r.value.items.findIndex((e) => e.entryId === appeared.entryId),
+                    afterEntryId: neighbourBefore(r.value.items, appeared.entryId),
+                    beforeEntryId: neighbourAfter(r.value.items, appeared.entryId),
                   } as const)
                 : disappeared !== undefined
                   ? ({
@@ -250,6 +279,8 @@ export function App() {
                       videoId: disappeared.videoId,
                       // Where it was, so the inverse can put it back there.
                       index: queueRef.current.items.findIndex((e) => e.entryId === disappeared.entryId),
+                      afterEntryId: neighbourBefore(queueRef.current.items, disappeared.entryId),
+                      beforeEntryId: neighbourAfter(queueRef.current.items, disappeared.entryId),
                     } as const)
                   : null;
             if (effect !== null) recorder.attachEffect(effect);
