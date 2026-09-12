@@ -49,5 +49,25 @@ entirely — the spike nearly concluded the API could not do something it does.
 
 ## Decisions that go to codex
 
-Nothing recorded yet. Add entries as under-determined decisions arise — two defensible readings of
-the spec, not merely hard problems.
+### 2026-09-12 — does the activity record cover calls refused before the handler ran?
+
+**The two readings.** FR-029/SC-006 require every action the assistant takes to appear in the record.
+`agent-mcp-react` validates arguments before a handler runs, so a schema-invalid call never reaches
+application code. Reading A: it never became an action, so no entry. Reading B: an attempted call is
+an action, and omitting it drops exactly the negative evidence IMMUNE-E demands.
+
+**Codex said B**, with the caveat that if no boundary can be intercepted, the requirement must be
+narrowed explicitly rather than the test silently narrowed.
+
+**Decided: B, and the caveat does not bind** — the library exposes the boundary. It distinguishes the
+two routes deliberately: `MCP_TOOL_ARGUMENTS_INVALID` (runtime) is the **agent's** schema refusal,
+while `MCP_REACT_ARGUMENTS_INVALID` is a page script calling through the shared document registry,
+which is not the assistant. The provider's `onToolCall` / `McpToolResultEvent` / `McpToolErrorEvent`
+observers see the agent route including its refusals.
+
+**Consequence for T015.** The record writer is driven by the provider's observer callbacks, **not**
+by wrapping each handler. A handler wrapper cannot see a pre-handler refusal, and running both would
+produce the duplicate entries codex warned about. One writer, one subscription, one entry per call.
+
+Add further entries as under-determined decisions arise — two defensible readings of the spec, not
+merely hard problems.

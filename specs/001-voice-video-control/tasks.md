@@ -51,37 +51,37 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 
 ### Named vocabularies (Constitution: closed sets are one exported dictionary)
 
-- [ ] T009 [P] Define refusal reasons as a single `as const` dictionary with derived type and membership test in `src/vocab/refusal-reasons.ts`
-- [ ] T010 [P] Define video availability reasons (`removed`/`private`/`age_restricted`/`region_blocked`/`embedding_disallowed`/`unknown`) in `src/vocab/availability.ts`
-- [ ] T011 [P] Define player states mirroring the IFrame model in `src/vocab/player-states.ts`
-- [ ] T012 [P] Define tool names as one dictionary, so no tool name is ever a bare string literal, in `src/vocab/tool-names.ts`
+- [X] T009 [P] Define refusal reasons as a single `as const` dictionary with derived type and membership test in `src/vocab/refusal-reasons.ts`
+- [X] T010 [P] Define video availability reasons (`removed`/`private`/`age_restricted`/`region_blocked`/`embedding_disallowed`/`unknown`) in `src/vocab/availability.ts`
+- [X] T011 [P] Define player states mirroring the IFrame model in `src/vocab/player-states.ts`
+- [X] T012 [P] Define tool names as one dictionary, so no tool name is ever a bare string literal, in `src/vocab/tool-names.ts`
 
 ### The result contract (Constitution III — no bare success)
 
-- [ ] T013 Define the shared tool result type `{ok:true,…} | {ok:false, reason, detail}` in `src/mcp/result.ts`
-- [ ] T014 Write the **contract-wide** invariant test asserting every registered tool can return a typed failure and none can return success with no effect, in `tests/contract/no-bare-success.test.ts`
-- [ ] T015 Build the activity-record writer that wraps every tool invocation so exactly one entry is written per call, refusals included, in `src/activity/record-writer.ts`
-- [ ] T016 Write the invariant test asserting one entry per invocation including refusals (SC-006) in `tests/contract/one-entry-per-invocation.test.ts`
+- [X] T013 Define the shared tool result type `{ok:true,…} | {ok:false, reason, detail}` in `src/mcp/result.ts`
+- [X] T014 Write the **contract-wide** invariant test asserting every registered tool can return a typed failure and none can return success with no effect, in `tests/contract/no-bare-success.test.ts`
+- [X] T015 Build the activity-record writer that wraps every tool invocation so exactly one entry is written per call, refusals included, in `src/activity/record-writer.ts`
+- [X] T016 Write the invariant test asserting one entry per invocation including refusals (SC-006) in `tests/contract/one-entry-per-invocation.test.ts`
 
 ### Persistence
 
-- [ ] T017 [P] Implement IndexedDB stores for `videoReferences`, `collections`, `commands`, `activityRecords`, `quotaState` in `src/store/db.ts`
-- [ ] T018 [P] Implement the `VideoReference` type with the three-valued `hasCaptions`/`chapters` fields and validation rules in `src/store/video-reference.ts`
-- [ ] T019 [P] Write tests asserting unknown is never collapsed to false for captions, chapters or quota (Constitution IV) in `tests/contract/unknown-is-a-value.test.ts`
+- [X] T017 [P] Implement IndexedDB stores for `videoReferences`, `collections`, `commands`, `activityRecords`, `quotaState` in `src/store/db.ts`
+- [X] T018 [P] Implement the `VideoReference` type with the three-valued `hasCaptions`/`chapters` fields and validation rules in `src/store/video-reference.ts`
+- [X] T019 [P] Write tests asserting unknown is never collapsed to false for captions, chapters or quota (Constitution IV) in `tests/contract/unknown-is-a-value.test.ts`
 
 ### MCP wiring
 
-- [ ] T020 Wire `AgentMcpProvider` with Ajv validator, `onUnexpectedState`, and `capabilities` fixing `dom.inspect`/`dom.interact`/`evaluate` to false, in `src/mcp/provider.tsx`
-- [ ] T021 Write the test asserting DOM and evaluate capabilities are off and cannot be enabled by configuration (Constitution II) in `tests/contract/capabilities-locked.test.ts`
-- [ ] T022 Implement the confirmation resolver where an unclear response resolves to refusal with **no** assume-yes path, in `src/mcp/confirmation-resolver.ts`
+- [X] T020 Wire `AgentMcpProvider` with Ajv validator, `onUnexpectedState`, and `capabilities` fixing `dom.inspect`/`dom.interact`/`evaluate` to false, in `src/mcp/provider.tsx`
+- [X] T021 Write the test asserting DOM and evaluate capabilities are off and cannot be enabled by configuration (Constitution II) in `tests/contract/capabilities-locked.test.ts`
+- [X] T022 Implement the confirmation resolver where an unclear response resolves to refusal with **no** assume-yes path, in `src/mcp/confirmation-resolver.ts`
 
 ### Backend
 
-- [ ] T023 [P] Implement `POST /api/mcp-ticket` minting single-use, short-lived opaque URLs in `server/ticket/route.ts`
-- [ ] T024 [P] Implement the catalog proxy with result cache and quota accounting over `search.list` in `server/catalog-proxy/search.ts`
-- [ ] T025 [P] Implement `videos.list` proxy returning duration, captions and chapter availability as three-valued in `server/catalog-proxy/videos.ts`
-- [ ] T026 Implement the agent host: Claude API agent loop on `claude-opus-5`, adaptive thinking, streaming, holding the MCP client, in `server/agent/loop.ts`
-- [ ] T027 Write the test asserting no API key is reachable from browser bundles in `tests/contract/no-keys-in-browser.test.ts`
+- [X] T023 [P] Implement `POST /api/mcp-ticket` minting single-use, short-lived opaque URLs in `server/ticket/route.ts`
+- [X] T024 [P] Implement the catalog proxy with result cache and quota accounting over `search.list` in `server/catalog-proxy/search.ts`
+- [X] T025 [P] Implement `videos.list` proxy returning duration, captions and chapter availability as three-valued in `server/catalog-proxy/videos.ts`
+- [X] T026 Implement the agent host: Claude API agent loop on `claude-opus-5`, adaptive thinking, streaming, holding the MCP client, in `server/agent/loop.ts`
+- [X] T027 Write the test asserting no API key is reachable from browser bundles in `tests/contract/no-keys-in-browser.test.ts`
 
 **Checkpoint**: Foundation ready — user stories may now proceed.
 

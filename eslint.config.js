@@ -6,11 +6,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Spike probes are plain .mjs that run in Node and evaluate code inside a
-    // real browser page, so they legitimately touch both sets of globals.
+    // Spike probes and the Gate B driver are plain .mjs that run in Node and
+    // evaluate code inside a real browser page, so they legitimately touch both
+    // sets of globals.
     // Declared rather than ignored: these files are kept to be re-run, and an
     // ignored file is one the gate stops protecting.
-    files: ['spikes/**/*.mjs'],
+    files: ['spikes/**/*.mjs', 'scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         console: 'readonly',
