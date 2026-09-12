@@ -48,6 +48,15 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
    * release (Gate C). Every start now checks the hold is still the same one.
    */
   const holdId = useRef(0);
+  /**
+   * The hold whose recogniser may still report an error.
+   *
+   * Distinct from `holdId`: releasing increments `holdId`, so guarding errors
+   * on it alone suppressed a microphone denial that arrived just after release
+   * even when no newer hold existed — the interface kept saying voice was ready
+   * (Gate C). A recogniser is silenced only once a NEWER hold supersedes it.
+   */
+  const reportingHold = useRef(0);
 
   const ensureProbed = useCallback(async (): Promise<VoiceAvailability> => {
     setPhase('probing');
@@ -60,6 +69,7 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
   const begin = useCallback(async () => {
     holdId.current += 1;
     const thisHold = holdId.current;
+    reportingHold.current = thisHold;
     const availability =
       phase === 'unprobed' || phase === 'probing' ? await ensureProbed() : phase === 'installing' ? 'downloadable' : phase;
     // The hold ended (or another began) while the probe ran. Do not open a mic
@@ -68,14 +78,16 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
     if (availability !== 'available') return;
     const started = startOnDeviceRecognition(globalThis, {
       onError: (detail) => {
-        // Only the recogniser that still owns the session may clear it. A
-        // delayed error from a previous hold used to null out the CURRENT
-        // session handle, so releasing the new hold found nothing to stop and
-        // left that microphone running invisibly (Gate C).
-        if (thisHold !== holdId.current) return;
+        // Superseded by a newer hold: stay silent, and above all do not clear
+        // the newer session handle — doing so left that microphone running
+        // invisibly (Gate C).
+        if (thisHold !== reportingHold.current) return;
         setDetail(detail);
-        setCapturing(false);
-        session.current = null;
+        // Only clear capture state if this hold still owns it.
+        if (thisHold === holdId.current) {
+          setCapturing(false);
+          session.current = null;
+        }
       },
     });
     if (!started.ok) {

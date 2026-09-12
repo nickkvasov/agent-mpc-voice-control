@@ -7,6 +7,7 @@ import { matchPlaybackCommand } from './matcher/playback-matcher.ts';
 import { playerStateFromCode, PLAYER_STATE } from './vocab/player-states.ts';
 import { ActivityRecorder, createInMemoryActivityStore } from './activity/record-writer.ts';
 import { invokeRecorded } from './app/invoke.ts';
+import { CommandChain } from './app/command-chain.ts';
 import { TOOL } from './vocab/tool-names.ts';
 import { pause, play, stop } from './player/tools/transport.ts';
 import { seek } from './player/tools/seek.ts';
@@ -65,19 +66,16 @@ export function App() {
   player.current ??= createLocalPlayer(bump);
   const p = player.current;
 
-  /**
-   * Commands are applied strictly in the order they were ISSUED (FR-038).
-   *
-   * A spoken command's transcript resolves after the person has let go, so
-   * without this chain a click made during that gap would be applied first and
-   * then overridden by the older utterance. The chain reserves each command's
-   * place at the moment it was issued.
-   */
-  const chain = useRef<Promise<void>>(Promise.resolve());
 
   const [heard, setHeard] = useState<string | null>(null);
   const [interpretation, setInterpretation] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+
+  /** One order for voice, typing and buttons alike (FR-038). */
+  const chain = useRef<CommandChain | null>(null);
+  chain.current ??= new CommandChain({
+    onError: (cause) => setOutcome(`That command failed: ${String(cause)}`),
+  });
 
   const run = useCallback(
     async (text: string) => {
@@ -117,11 +115,7 @@ export function App() {
 
   const enqueue = useCallback(
     (resolveText: () => Promise<string>) => {
-      chain.current = chain.current.then(async () => {
-        const text = await resolveText();
-        if (text.trim() === '') return;
-        await run(text);
-      });
+      chain.current?.enqueue(resolveText, run);
     },
     [run],
   );
