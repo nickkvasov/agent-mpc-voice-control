@@ -19,10 +19,75 @@ export interface VoiceProbeResult {
   readonly detail: string;
 }
 
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  processLocally: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
+}
+
 interface SpeechRecognitionStatic {
+  new (): SpeechRecognitionInstance;
   available?: (opts: { langs: readonly string[]; processLocally: boolean }) => Promise<string>;
   install?: (opts: { langs: readonly string[] }) => Promise<boolean>;
   prototype?: object;
+}
+
+/** An open capture. `stop()` ends it and returns what was heard. */
+export interface RecognitionSession {
+  stop(): string;
+}
+
+export type StartOutcome =
+  | { readonly ok: true; readonly session: RecognitionSession }
+  | { readonly ok: false; readonly detail: string };
+
+/**
+ * Opens a capture with `processLocally` forced on.
+ *
+ * Never falls back to the default mode: that mode lets the browser send audio
+ * to a server, which FR-043 forbids, and a fallback here would be invisible.
+ */
+export function startOnDeviceRecognition(g: typeof globalThis = globalThis): StartOutcome {
+  const Ctor = speechRecognitionCtor(g);
+  if (Ctor === undefined) return { ok: false, detail: 'This browser has no speech recognition.' };
+  try {
+    const r = new Ctor();
+    r.lang = 'en-US';
+    r.continuous = true;
+    r.interimResults = true;
+    r.processLocally = true;
+    let heard = '';
+    r.onresult = (e) => {
+      let text = '';
+      for (let i = 0; i < e.results.length; i += 1) {
+        text += e.results[i]?.[0]?.transcript ?? '';
+      }
+      heard = text;
+    };
+    r.onerror = () => {};
+    r.start();
+    return {
+      ok: true,
+      session: {
+        stop: () => {
+          try {
+            r.stop();
+          } catch {
+            // Stopping an already-stopped recogniser is not a failure worth
+            // surfacing; what was heard is still returned.
+          }
+          return heard;
+        },
+      },
+    };
+  } catch (cause) {
+    return { ok: false, detail: `Could not start on-device recognition (${String(cause)}).` };
+  }
 }
 
 export function speechRecognitionCtor(g: typeof globalThis = globalThis): SpeechRecognitionStatic | undefined {

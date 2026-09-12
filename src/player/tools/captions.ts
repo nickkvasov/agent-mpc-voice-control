@@ -19,6 +19,15 @@ export const CAPTIONS_MODULE = 'captions';
 export function listTracks(p: YouTubePlayer): ToolResult<{ tracks: readonly CaptionTrack[] }> {
   p.loadModule(CAPTIONS_MODULE);
   const raw = p.getOption(CAPTIONS_MODULE, 'tracklist');
+  if (raw === undefined || raw === null) {
+    // NOT the same as an empty list. The module may still be loading, or the
+    // undocumented enumeration may be unavailable here. Telling the person the
+    // video has no captions would be a confident wrong answer (Constitution IV).
+    return refuse(
+      REFUSAL_REASON.effectUnverifiable,
+      'The player has not reported this video\'s caption tracks yet, so whether it has any is not established.',
+    );
+  }
   if (!Array.isArray(raw) || raw.length === 0) {
     // FR-010 acceptance 5: say none are available rather than appearing to succeed.
     return refuse(

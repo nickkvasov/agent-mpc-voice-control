@@ -4,7 +4,9 @@ import { CommandInput } from './app/command-input.tsx';
 import { Interpretation } from './app/interpretation.tsx';
 import { PushToTalk } from './voice/push-to-talk.tsx';
 import { matchPlaybackCommand } from './matcher/playback-matcher.ts';
-import { PLAYER_STATE, type PlayerState } from './vocab/player-states.ts';
+import { playerStateFromCode, PLAYER_STATE } from './vocab/player-states.ts';
+import { ActivityRecorder, createInMemoryActivityStore } from './activity/record-writer.ts';
+import { invokeRecorded } from './app/invoke.ts';
 import { TOOL } from './vocab/tool-names.ts';
 import { pause, play, stop } from './player/tools/transport.ts';
 import { seek } from './player/tools/seek.ts';
@@ -12,6 +14,9 @@ import { setMuted, setRate, setVolume } from './player/tools/rate-volume.ts';
 import { setCaptions } from './player/tools/captions.ts';
 import type { YouTubePlayer } from './player/player.ts';
 import { isRefusal, type ToolResult } from './mcp/result.ts';
+
+/** Local calls and agent calls write to the same record (SC-006). */
+const recorder = new ActivityRecorder(createInMemoryActivityStore());
 
 /**
  * US1: control playback by speaking or typing.
@@ -65,7 +70,7 @@ export function App() {
   const [outcome, setOutcome] = useState<string | null>(null);
 
   const run = useCallback(
-    (text: string) => {
+    async (text: string) => {
       setHeard(text);
       const m = matchPlaybackCommand(text);
       if (!m.matched) {
@@ -76,22 +81,24 @@ export function App() {
         return;
       }
       setInterpretation(m.match.interpretation);
-      const ad = { adPlaying: false };
+      const ctx = { adPlaying: false, hasVideo: true };
       const i = m.match.input;
-      let r: ToolResult<unknown>;
-      switch (m.match.tool) {
-        case TOOL.playbackPlay: r = play(p, ad); break;
-        case TOOL.playbackPause: r = pause(p, ad); break;
-        case TOOL.playbackStop: r = stop(p, ad); break;
-        case TOOL.playbackSeek: r = seek(p, ad, i['mode'] as 'relative' | 'absolute', i['seconds'] as number); break;
-        case TOOL.playbackSetRate: r = setRate(p, i['rate'] as number); break;
-        case TOOL.playbackSetVolume: r = setVolume(p, i['volume'] as number); break;
-        case TOOL.playbackSetMuted: r = setMuted(p, i['muted'] as boolean); break;
-        case TOOL.playbackSetCaptions: r = setCaptions(p, { enabled: i['enabled'] as boolean }); break;
-        default:
-          setOutcome(`${m.match.tool} is not wired up in this slice.`);
-          return;
-      }
+      const call = (): Promise<ToolResult<unknown>> | ToolResult<unknown> => {
+        switch (m.match.tool) {
+          case TOOL.playbackPlay: return play(p, ctx);
+          case TOOL.playbackPause: return pause(p, ctx);
+          case TOOL.playbackStop: return stop(p, ctx);
+          case TOOL.playbackSeek: return seek(p, ctx, i['mode'] as 'relative' | 'absolute', i['seconds'] as number);
+          case TOOL.playbackSetRate: return setRate(p, i['rate'] as number);
+          case TOOL.playbackSetVolume: return setVolume(p, i['volume'] as number);
+          case TOOL.playbackSetMuted: return setMuted(p, i['muted'] as boolean);
+          case TOOL.playbackSetCaptions: return setCaptions(p, { enabled: i['enabled'] as boolean });
+          default: return { ok: false, reason: 'capability_unsupported', detail: `${m.match.tool} is not wired up in this slice.` } as ToolResult<unknown>;
+        }
+      };
+      // Through the recorded boundary, so a local command leaves an entry just
+      // as an agent call does.
+      const r = await invokeRecorded(recorder, m.match.tool, i, m.match.interpretation, call);
       setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
       bump();
     },
@@ -106,18 +113,20 @@ export function App() {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
       <h1>Voice Video Control</h1>
-      <PushToTalk onUtterance={run} />
-      <CommandInput onCommand={run} />
+      <PushToTalk onUtterance={(t) => void run(t)} />
+      <CommandInput onCommand={(t) => void run(t)} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
+      {/* Controls read state through the shared mapper, so they cannot disagree
+          with what the tools reported. */}
       <Controls
-        state={(p.getPlayerState() === 1 ? PLAYER_STATE.playing : p.getPlayerState() === 2 ? PLAYER_STATE.paused : PLAYER_STATE.cued) as PlayerState}
+        state={playerStateFromCode(p.getPlayerState()) ?? PLAYER_STATE.unstarted}
         positionSeconds={p.getCurrentTime()}
         durationSeconds={p.getDuration()}
         rate={p.getPlaybackRate()}
         volume={p.getVolume()}
         muted={p.isMuted()}
         captionsTrack={track === '' ? null : track}
-        onCommand={run}
+        onCommand={(t) => void run(t)}
       />
     </main>
   );

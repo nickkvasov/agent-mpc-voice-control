@@ -3,42 +3,78 @@ import { ok, refuse, type ToolResult } from '../../mcp/result.ts';
 import { PLAYER_STATE, type PlayerState } from '../../vocab/player-states.ts';
 import { playerState, type YouTubePlayer } from '../player.ts';
 import { gateForAd, type AdState } from '../ad-gate.ts';
+import { settleUntil } from '../readback.ts';
 
 export interface TransportValue {
   readonly state: PlayerState;
   readonly positionSeconds: number;
 }
 
-const NOTHING_CUED: readonly PlayerState[] = [PLAYER_STATE.unstarted];
+/**
+ * Whether a video is loaded at all.
+ *
+ * Tracked separately from transport state because YouTube's `-1` means
+ * "not started", NOT "nothing loaded" — a player cued with a video id is
+ * legitimately unstarted, and `stopVideo()` can return it to that state. Gate C
+ * found the two conflated, which refused `play` on a perfectly good video.
+ */
+export interface PlaybackContext extends AdState {
+  readonly hasVideo: boolean;
+}
 
 function snapshot(p: YouTubePlayer): TransportValue {
   return { state: playerState(p), positionSeconds: p.getCurrentTime() };
 }
 
-export function play(p: YouTubePlayer, ad: AdState): ToolResult<TransportValue> {
-  return gateForAd(ad, 'start playback', () => {
-    if (NOTHING_CUED.includes(playerState(p))) {
-      return refuse(REFUSAL_REASON.notPlaying, 'There is no video cued, so there is nothing to play.');
+async function verified(
+  p: YouTubePlayer,
+  want: PlayerState,
+  action: string,
+  timeoutMs?: number,
+): Promise<ToolResult<TransportValue>> {
+  const settled = await settleUntil(() => playerState(p) === want, timeoutMs);
+  return settled
+    ? ok(snapshot(p))
+    : refuse(
+        REFUSAL_REASON.refusedByPlayer,
+        `Asked the player to ${action}; it is still ${playerState(p)}, so the change was not established.`,
+      );
+}
+
+export async function play(p: YouTubePlayer, ctx: PlaybackContext, timeoutMs?: number): Promise<ToolResult<TransportValue>> {
+  return gateForAd(ctx, 'start playback', async () => {
+    if (!ctx.hasVideo) {
+      return refuse(REFUSAL_REASON.notPlaying, 'There is no video loaded, so there is nothing to play.');
     }
+    if (playerState(p) === PLAYER_STATE.playing) return ok(snapshot(p));
     p.playVideo();
-    return ok(snapshot(p));
+    return verified(p, PLAYER_STATE.playing, 'start playback', timeoutMs);
   });
 }
 
-export function pause(p: YouTubePlayer, ad: AdState): ToolResult<TransportValue> {
-  return gateForAd(ad, 'pause', () => {
+export async function pause(p: YouTubePlayer, ctx: PlaybackContext, timeoutMs?: number): Promise<ToolResult<TransportValue>> {
+  return gateForAd(ctx, 'pause', async () => {
     if (playerState(p) !== PLAYER_STATE.playing) {
       // FR-006 acceptance 6: say nothing is playing rather than failing silently.
       return refuse(REFUSAL_REASON.notPlaying, 'Nothing is playing right now, so there is nothing to pause.');
     }
     p.pauseVideo();
-    return ok(snapshot(p));
+    return verified(p, PLAYER_STATE.paused, 'pause', timeoutMs);
   });
 }
 
-export function stop(p: YouTubePlayer, ad: AdState): ToolResult<TransportValue> {
-  return gateForAd(ad, 'stop', () => {
+export async function stop(p: YouTubePlayer, ctx: PlaybackContext, timeoutMs?: number): Promise<ToolResult<TransportValue>> {
+  return gateForAd(ctx, 'stop', async () => {
+    if (!ctx.hasVideo) {
+      return refuse(REFUSAL_REASON.notPlaying, 'There is no video loaded, so there is nothing to stop.');
+    }
     p.stopVideo();
-    return ok(snapshot(p));
+    const settled = await settleUntil(
+      () => playerState(p) === PLAYER_STATE.ended || playerState(p) === PLAYER_STATE.unstarted,
+      timeoutMs,
+    );
+    return settled
+      ? ok(snapshot(p))
+      : refuse(REFUSAL_REASON.refusedByPlayer, `Asked the player to stop; it is still ${playerState(p)}.`);
   });
 }

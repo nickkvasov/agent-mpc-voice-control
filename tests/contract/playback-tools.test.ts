@@ -35,35 +35,50 @@ function fakePlayer(over: Partial<Record<string, unknown>> = {}): YouTubePlayer 
   } as YouTubePlayer;
   return p;
 }
-const noAd = { adPlaying: false };
-const inAd = { adPlaying: true };
+const noAd = { adPlaying: false, hasVideo: true };
+const inAd = { adPlaying: true, hasVideo: true };
+const noVideo = { adPlaying: false, hasVideo: false };
 
 describe('playback tools', () => {
-  it('pauses, and says nothing is playing rather than failing silently', () => {
-    expect(pause(fakePlayer(), noAd).ok).toBe(true);
+  it('pauses, and says nothing is playing rather than failing silently', async () => {
+    expect((await pause(fakePlayer(), noAd)).ok).toBe(true);
     const idle = fakePlayer({ getPlayerState: () => 2 });
-    const r = pause(idle, noAd);
+    const r = await pause(idle, noAd);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe(REFUSAL_REASON.notPlaying);
   });
 
-  it('plays, and refuses when nothing is cued rather than pretending', () => {
-    const cued = fakePlayer({ getPlayerState: () => 5 });
-    expect(play(cued, noAd).ok).toBe(true);
-    const empty = fakePlayer({ getPlayerState: () => -1 });
-    const r = play(empty, noAd);
+  it('plays a cued video, including one that is merely unstarted', async () => {
+    // Gate C: state -1 means "not started", not "no video". A player cued with
+    // an id is legitimately unstarted and must still be playable.
+    for (const initial of [5, -1]) {
+      let st = initial;
+      const pl = fakePlayer({ getPlayerState: () => st, playVideo: () => void (st = 1) });
+      expect((await play(pl, noAd)).ok, `initial state ${String(initial)}`).toBe(true);
+    }
+  });
+
+  it('refuses to play when no video is loaded at all', async () => {
+    const r = await play(fakePlayer(), noVideo);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe(REFUSAL_REASON.notPlaying);
   });
 
-  it('stops and reports the resulting state', () => {
-    const r = stop(fakePlayer(), noAd);
+  it('refuses success when the player ignores a pause', async () => {
+    const stubborn = fakePlayer({ pauseVideo: () => {}, getPlayerState: () => 1 });
+    const r = await pause(stubborn, noAd, 60);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.detail).toMatch(/not established/);
+  });
+
+  it('stops and reports the resulting state', async () => {
+    const r = await stop(fakePlayer(), noAd);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.state).toBe('ended');
   });
 
-  it('refuses during an advertisement, and says it can be retried', () => {
-    const r = pause(fakePlayer(), inAd);
+  it('refuses during an advertisement, and says it can be retried', async () => {
+    const r = await pause(fakePlayer(), inAd);
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.reason).toBe(REFUSAL_REASON.adInProgress);
@@ -71,39 +86,65 @@ describe('playback tools', () => {
     }
   });
 
-  it('seeks relatively and reports where it actually landed', () => {
-    const r = seek(fakePlayer(), noAd, 'relative', 120);
+  it('seeks relatively and reports where it actually landed', async () => {
+    const r = await seek(fakePlayer(), noAd, 'relative', 120);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.positionSeconds).toBe(150);
   });
 
-  it('clamps a seek past the end and says it clamped', () => {
-    const r = seek(fakePlayer(), noAd, 'absolute', 99999);
+  it('clamps a seek past the end and says it clamped', async () => {
+    const r = await seek(fakePlayer(), noAd, 'absolute', 99999);
     expect(r.ok).toBe(true);
     if (r.ok) { expect(r.value.clamped).toBe(true); expect(r.value.positionSeconds).toBe(600); }
   });
 
-  it('states the rate actually applied, not the one asked for', () => {
-    const r = setRate(fakePlayer(), 1.6);
+  it('states the rate actually applied, not the one asked for', async () => {
+    const r = await setRate(fakePlayer(), 1.6);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.rateApplied).toBe(1.5);
   });
 
-  it('reports platform refusal of a volume change instead of success', () => {
+  it('accepts a rate the player applies asynchronously', async () => {
+    // Gate C: the real IFrame API applies a rate change out of band, so an
+    // immediate getter returns the previous value and the tool wrongly reported
+    // refusal. The synchronous fake could never show this.
+    let rate = 1;
+    const slow = fakePlayer({
+      setPlaybackRate: (r: number) => void setTimeout(() => (rate = r), 60),
+      getPlaybackRate: () => rate,
+    });
+    const r = await setRate(slow, 1.5);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.rateApplied).toBe(1.5);
+  });
+
+  it('distinguishes a change that never settles from one actively refused', async () => {
+    const stuck = fakePlayer({ setPlaybackRate: () => {}, getPlaybackRate: () => 1 });
+    const r = await setRate(stuck, 1.5, 80);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.detail).toMatch(/not established/);
+  });
+
+  it('reports platform refusal of a volume change instead of success', async () => {
     const stubborn = fakePlayer({ setVolume: () => {}, getVolume: () => 50 });
-    const r = setVolume(stubborn, 80);
+    const r = await setVolume(stubborn, 80, 80);
     expect(r.ok).toBe(false);
     if (!r.ok) { expect(r.reason).toBe(REFUSAL_REASON.refusedByPlayer); expect(r.detail).toMatch(/would not let/); }
   });
 
-  it('mutes and reads it back', () => {
-    expect(setMuted(fakePlayer(), true).ok).toBe(true);
+  it('mutes and reads it back', async () => {
+    expect((await setMuted(fakePlayer(), true)).ok).toBe(true);
   });
 
-  it('says a video offers no captions rather than appearing to succeed', () => {
-    const r = listTracks(fakePlayer());
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe(REFUSAL_REASON.capabilityUnsupported);
+  it('distinguishes captions not yet reported from confirmed absence', () => {
+    // getOption returning undefined means the module has not reported yet.
+    const notYet = listTracks(fakePlayer());
+    expect(notYet.ok).toBe(false);
+    if (!notYet.ok) expect(notYet.reason).toBe(REFUSAL_REASON.effectUnverifiable);
+
+    const none = listTracks(fakePlayer({ getOption: () => [] }));
+    expect(none.ok).toBe(false);
+    if (!none.ok) expect(none.reason).toBe(REFUSAL_REASON.capabilityUnsupported);
   });
 
   it('enables a caption track and verifies the readback', () => {
