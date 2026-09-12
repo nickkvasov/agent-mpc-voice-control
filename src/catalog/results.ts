@@ -65,7 +65,10 @@ export function narrowLocally(current: ResultSet, add: Criteria): ResultSet {
     // criteria — `unchanged` means the CRITERIA repeated, not the set.
     operation: changed ? 'narrowed' : 'unchanged',
     fromCache: current.fromCache,
-    setAsideUnknown: setAside,
+    // Carried forward: applying the same filter again only sees the items that
+    // survived it, so recounting from scratch dropped the explanation while the
+    // criterion was still in force (Gate C).
+    setAsideUnknown: current.setAsideUnknown + setAside,
   };
 }
 

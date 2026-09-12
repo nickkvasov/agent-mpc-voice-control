@@ -32,12 +32,19 @@ export function resolveReference(items: readonly VideoReference[], reference: st
   // Apollo 1" used to resolve to result 1, silently playing the wrong video
   // because any digit anywhere outranked the title (Gate C).
   const ordinalWord = Object.keys(ORDINALS).find((w) => new RegExp(`\\b${w}\\b`).test(r));
-  const positional = /\b(?:number|result|item|#)\s*(\d{1,2})\b|^\s*(\d{1,2})(?:st|nd|rd|th)?\s*$|\bthe\s+(\d{1,2})(?:st|nd|rd|th)\b/.exec(r);
+  // Explicit positional forms only. `#2`, `result #2`, `2nd`, `2nd one`,
+  // `the 2nd`, or a bare number — but never a digit that merely appears in a
+  // title, which used to outrank the title itself.
+  const positional =
+    /(?:^|\s)#\s*(\d{1,2})(?=\s|$)/.exec(r) ??
+    /(?:\b(?:number|result|item)\s*#?\s*)(\d{1,2})\b/.exec(r) ??
+    /(?:^|\s)(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)(?=\s|$)/.exec(r) ??
+    /^\s*(\d{1,2})\s*$/.exec(r);
   const index =
     ordinalWord !== undefined
       ? ORDINALS[ordinalWord]
       : positional !== null
-        ? Number(positional[1] ?? positional[2] ?? positional[3])
+        ? Number(positional[1])
         : undefined;
   if (index !== undefined) {
     const item = index === -1 ? items[items.length - 1] : items[index - 1];

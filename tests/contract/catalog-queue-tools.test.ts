@@ -208,3 +208,47 @@ describe('Gate C round 1 regressions', () => {
     if (r.ok) expect(r.value.items).toHaveLength(6);
   });
 });
+
+describe('Gate C round 2 regressions', () => {
+  const withDur = (id: string, title: string, dur: number) =>
+    makeVideoReference({ videoId: id, title, channelTitle: 'c', durationSeconds: dur, publishedAt: 0 });
+  const noDur = (id: string, title: string) =>
+    makeVideoReference({ videoId: id, title, channelTitle: 'c', publishedAt: 0 });
+
+  it('still resolves explicit positional forms', () => {
+    const items = [withDur('aaaaaaaaaaa', 'a', 100), withDur('bbbbbbbbbbb', 'b', 200)];
+    for (const phrase of ['#2', 'result #2', '2nd', '2nd one', 'the 2nd', 'number 2', '2', 'the second one']) {
+      const r = resolveReference(items, phrase);
+      expect(r.ok, phrase).toBe(true);
+      if (r.ok) expect(r.value.videoId, phrase).toBe('bbbbbbbbbbb');
+    }
+  });
+
+  it('still ignores a digit that is only part of a title', () => {
+    const items = [withDur('aaaaaaaaaaa', 'Unrelated talk', 100), withDur('bbbbbbbbbbb', 'Apollo 1', 200)];
+    const r = resolveReference(items, 'the one about Apollo 1');
+    if (r.ok) expect(r.value.videoId).toBe('bbbbbbbbbbb');
+  });
+
+  it('keeps the unknown-length explanation across repeated narrowing', () => {
+    const set = results(withDur('aaaaaaaaaaa', 'short', 120), noDur('bbbbbbbbbbb', 'mystery'));
+    const once = narrowLocally(set, { maxDurationSeconds: 600 });
+    expect(once.setAsideUnknown).toBe(1);
+    const twice = narrowLocally(once, { maxDurationSeconds: 600 });
+    // The criterion is still in force, so the explanation must not vanish.
+    expect(twice.setAsideUnknown).toBe(1);
+  });
+
+  it('applies each queued mutation to the CURRENT queue, not a captured snapshot', () => {
+    // Models the App bug: both callbacks were built from the same snapshot, so
+    // the second add replaced the first instead of appending.
+    let current = EMPTY_QUEUE;
+    const apply = (run: (cur: typeof current) => ReturnType<typeof add>) => {
+      const r = run(current);
+      if (r.ok) current = r.value;
+    };
+    apply((cur) => add(cur, ['A']));
+    apply((cur) => add(cur, ['B']));
+    expect(current.items).toEqual(['A', 'B']);
+  });
+});

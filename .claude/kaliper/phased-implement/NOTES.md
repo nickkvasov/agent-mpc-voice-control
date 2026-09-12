@@ -113,6 +113,19 @@ expected to fail, because *how* it fails is the evidence. Here the unstubbed run
 returned a JSON 500 with a stated reason, which is exactly right for a
 deployment with no key, and is a different fact from HTML.
 
+### 2026-09-12 — I committed with a red gate, twice
+
+**What happened.** Phase 4's Gate C round 2 opened with codex reporting that
+`npm run lint` was failing — on a file I had added AFTER running Gate A. The
+same shape occurred at the end of Phase 2: the gate sequence was run, then more
+was committed, and the gate never re-ran on what actually went in.
+
+**Standing rule.** Gate A runs on the FINAL tree being committed, immediately
+before `git commit`, not earlier in the phase. Anything added after the gate —
+including a throwaway script — is part of the commit and is covered by the gate
+or the gate covered nothing. Running four commands in a loop and reading four
+PASSes says nothing about a file that did not exist yet.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

@@ -179,14 +179,33 @@ export function App() {
     );
   }, []);
 
+  /**
+   * Holds the queue as it is NOW.
+   *
+   * Serialising mutations is not enough: two clicks made while a search was
+   * pending both captured the queue as it was at click time, so the second
+   * addition replaced the first instead of appending (Gate C). Ordering and
+   * freshness are different problems.
+   */
+  const queueRef = useRef<QueueState>(EMPTY_QUEUE);
+  queueRef.current = queue;
+
   const queueAction = useCallback(
-    (label: string, tool: typeof TOOL.queueAdd | typeof TOOL.queueRemove, run: () => ReturnType<typeof queueAdd>) => {
+    (
+      label: string,
+      tool: typeof TOOL.queueAdd | typeof TOOL.queueRemove,
+      args: Record<string, unknown>,
+      run: (current: QueueState) => ReturnType<typeof queueAdd>,
+    ) => {
       chain.current?.enqueue(
         () => Promise.resolve(label),
         async () => {
-          const r = await invokeRecorded(recorder, tool, {}, label, run);
+          const r = await invokeRecorded(recorder, tool, args, label, () => run(queueRef.current));
           setOutcome(r.ok ? `${label}.` : `Refused: ${r.detail}`);
-          if (r.ok) setQueue(r.value);
+          if (r.ok) {
+            queueRef.current = r.value;
+            setQueue(r.value);
+          }
         },
       );
     },
@@ -226,11 +245,21 @@ export function App() {
         results={results}
         quota={quota}
         onPlay={(id) => setOutcome(`Would play ${id} once the player embed lands.`)}
-        onQueue={(id) => queueAction('Queued', TOOL.queueAdd, () => queueAdd(queue, [id]))}
+        onQueue={(id) =>
+          // FR-029: the entry must name what it acted on, not just "Queued".
+          queueAction(`Queued ${id}`, TOOL.queueAdd, { videoIds: [id] }, (cur) => queueAdd(cur, [id]))
+        }
       />
       <QueueView
         queue={queue}
-        onRemoveAt={(index) => queueAction('Removed from the queue', TOOL.queueRemove, () => removeAt(queue, index))}
+        onRemoveAt={(index) =>
+          queueAction(
+            `Removed queue position ${String(index + 1)} (${queueRef.current.items[index] ?? 'unknown'})`,
+            TOOL.queueRemove,
+            { index, videoId: queueRef.current.items[index] ?? null },
+            (cur) => removeAt(cur, index),
+          )
+        }
       />
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. */}
