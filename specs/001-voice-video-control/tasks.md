@@ -127,29 +127,29 @@ the player reaches the requested state and the controls agree. Needs no catalog 
 
 ### Tests for User Story 1
 
-- [ ] T028 [P] [US1] Contract tests for each `playback.*` tool: schema rejection and every `ok:false` reason, in `tests/contract/playback-tools.test.ts`
-- [ ] T029 [P] [US1] Test that voice and text produce identical outcomes for equivalent instructions (FR-001) in `tests/integration/voice-text-parity.test.ts`
+- [X] T028 [P] [US1] Contract tests for each `playback.*` tool: schema rejection and every `ok:false` reason, in `tests/contract/playback-tools.test.ts`
+- [X] T029 [P] [US1] Test that voice and text produce identical outcomes for equivalent instructions (FR-001) in `tests/integration/voice-text-parity.test.ts`
 - [ ] T030 [P] [US1] Playwright timing test measuring SC-001 **from end of speech**, not from interpretation, in `tests/e2e/playback-timing.spec.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T031 [US1] Implement the IFrame player wrapper with state mapping and `onError`/`onStateChange`/`onAutoplayBlocked` handlers in `src/player/player.ts`
-- [ ] T032 [US1] Implement **readback verification** — `getPlaybackRate`, `getVolume`, `isMuted` after every set, reporting platform refusal rather than success (FR-008, FR-009) — in `src/player/readback.ts`
-- [ ] T033 [US1] Implement ad detection gating commands the player refuses during ads (FR-014) in `src/player/ad-gate.ts`
-- [ ] T034 [P] [US1] Declare `playback.play`/`pause`/`stop` tools in `src/player/tools/transport.ts`
-- [ ] T035 [P] [US1] Declare `playback.seek` with clamping, returning the position actually reached, in `src/player/tools/seek.ts`
-- [ ] T036 [P] [US1] Declare `playback.setRate`, `setVolume`, `setMuted` over the readback layer in `src/player/tools/rate-volume.ts`
-- [ ] T037 [US1] Declare `playback.setCaptions` per the T007 spike finding, treating `capability_unsupported` as an expected outcome, in `src/player/tools/captions.ts`
-- [ ] T038 [P] [US1] Declare `playback.seekToChapter` returning `capability_unsupported` when no chapters exist in `src/player/tools/chapters.ts`
-- [ ] T039 [P] [US1] Declare `playback.next`/`previous`/`getState` in `src/player/tools/navigation.ts`
-- [ ] T040 [US1] Implement the on-device recognition probe and the **refusal path** when unavailable — never fall back to remote recognition — in `src/voice/recognition.ts`
-- [ ] T041 [US1] Implement the push-to-talk control with a capture indicator visible for exactly the capture window in `src/voice/push-to-talk.tsx`
-- [ ] T042 [P] [US1] Implement the text command input in `src/app/command-input.tsx`
-- [ ] T043 [US1] Implement the interpretation display so a misrecognition is visible before or as the system acts (FR-003) in `src/app/interpretation.tsx`
-- [ ] T044 [US1] Implement the **local deterministic matcher** over the closed playback vocabulary, falling through to the agent rather than guessing (R3), in `src/matcher/playback-matcher.ts`
-- [ ] T045 [US1] Write the test asserting the matcher never guesses — a low-confidence utterance routes to the agent — in `tests/integration/matcher-fallthrough.test.ts`
-- [ ] T046 [US1] Implement in-flight command cancellation (FR-004) in `src/app/command-cancel.ts`
-- [ ] T047 [US1] Implement player control UI reflecting command-driven changes within 1s (FR-013) in `src/player/controls.tsx`
+- [X] T031 [US1] Implement the IFrame player wrapper with state mapping and `onError`/`onStateChange`/`onAutoplayBlocked` handlers in `src/player/player.ts`
+- [X] T032 [US1] Implement **readback verification** — `getPlaybackRate`, `getVolume`, `isMuted` after every set, reporting platform refusal rather than success (FR-008, FR-009) — in `src/player/readback.ts`
+- [X] T033 [US1] Implement ad detection gating commands the player refuses during ads (FR-014) in `src/player/ad-gate.ts`
+- [X] T034 [P] [US1] Declare `playback.play`/`pause`/`stop` tools in `src/player/tools/transport.ts`
+- [X] T035 [P] [US1] Declare `playback.seek` with clamping, returning the position actually reached, in `src/player/tools/seek.ts`
+- [X] T036 [P] [US1] Declare `playback.setRate`, `setVolume`, `setMuted` over the readback layer in `src/player/tools/rate-volume.ts`
+- [X] T037 [US1] Declare `playback.setCaptions` per the T007 spike finding, treating `capability_unsupported` as an expected outcome, in `src/player/tools/captions.ts`
+- [X] T038 [P] [US1] Declare `playback.seekToChapter` returning `capability_unsupported` when no chapters exist in `src/player/tools/chapters.ts`
+- [X] T039 [P] [US1] Declare `playback.next`/`previous`/`getState` in `src/player/tools/navigation.ts`
+- [X] T040 [US1] Implement the on-device recognition probe and the **refusal path** when unavailable — never fall back to remote recognition — in `src/voice/recognition.ts`
+- [X] T041 [US1] Implement the push-to-talk control with a capture indicator visible for exactly the capture window in `src/voice/push-to-talk.tsx`
+- [X] T042 [P] [US1] Implement the text command input in `src/app/command-input.tsx`
+- [X] T043 [US1] Implement the interpretation display so a misrecognition is visible before or as the system acts (FR-003) in `src/app/interpretation.tsx`
+- [X] T044 [US1] Implement the **local deterministic matcher** over the closed playback vocabulary, falling through to the agent rather than guessing (R3), in `src/matcher/playback-matcher.ts`
+- [X] T045 [US1] Write the test asserting the matcher never guesses — a low-confidence utterance routes to the agent — in `tests/integration/matcher-fallthrough.test.ts`
+- [X] T046 [US1] Implement in-flight command cancellation (FR-004) in `src/app/command-cancel.ts`
+- [X] T047 [US1] Implement player control UI reflecting command-driven changes within 1s (FR-013) in `src/player/controls.tsx`
 
 **Checkpoint**: US1 independently testable and demonstrable.
 

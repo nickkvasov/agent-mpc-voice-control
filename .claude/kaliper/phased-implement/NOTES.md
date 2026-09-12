@@ -76,6 +76,23 @@ before fixing: `health` went from 200 to dead after a single request.
 turns a rejection into a typed reply. A crashed server is the loudest possible
 unexpected state and still tells the caller nothing.
 
+### 2026-09-12 — "speed 1.5" became 15x, and the suite was green
+
+**What happened.** The matcher normalised an utterance by stripping `[.!?,]`
+before parsing it. That is correct for sentence punctuation and catastrophic for
+decimals: "speed 1.5" became "speed 15", which the nearest-available-rate lookup
+then resolved to 2x. Driving the app at Gate B showed *"Understood as: Set
+playback speed to 15x"* on screen.
+
+**Why the tests passed.** The matcher test drove `'speed 1.5'` and asserted only
+which TOOL matched — never the value it carried. The assertion could not fail on
+a wrong number, so it never did. This is the same shape as the constitution's
+warning about an assertion that cannot fail.
+
+**Standing rule.** For any command that carries a value, assert the VALUE, not
+just the routing. A test that checks which handler was chosen has not tested
+what it was chosen to do.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
@@ -97,6 +114,34 @@ observers see the agent route including its refusals.
 **Consequence for T015.** The record writer is driven by the provider's observer callbacks, **not**
 by wrapping each handler. A handler wrapper cannot see a pre-handler refusal, and running both would
 produce the duplicate entries codex warned about. One writer, one subscription, one entry per call.
+
+### 2026-09-12 — what does `setCaptions({enabled:false})` report when the effect cannot be read back?
+
+**The problem.** The T007 spike measured that enabling a caption track reads back
+correctly and disabling does not — neither `setOption(track,{})` nor
+`unloadModule` changes what `getOption` reports, and the rendered captions are
+inside a cross-origin iframe so nothing can settle it. Captions may well turn
+off; we cannot know.
+
+**Codex recommended a third outcome** — `status: "unverified"` alongside ok and
+refused — on the grounds that a refusal conflates *could not verify* with *did
+not act*, while `ok:true` invites callers to read it as confirmed.
+
+**Decided: codex's own stated fallback, not its first choice.** Constitution III
+is NON-NEGOTIABLE and says there is no third outcome; the result type makes one
+unrepresentable on purpose. Codex named the fallback for exactly this case: use
+`ok:false` for *failure to establish completion*, with the effect recorded as
+unknown — never a claim that captions stayed on.
+
+So `enabled:false` returns `ok:false, reason: effect_unverifiable`, and the
+detail says what was and was not established: **"Sent the request to turn
+captions off; could not confirm whether captions are now off."** The activity
+record carries the same sentence. A person reading it learns the truth, which a
+bare success would have denied them.
+
+**Standing rule.** A refusal reason is allowed to mean "I did something and
+cannot confirm it", provided the detail says so. What is forbidden is a detail
+that implies the opposite of what happened.
 
 Add further entries as under-determined decisions arise — two defensible readings of the spec, not
 merely hard problems.
