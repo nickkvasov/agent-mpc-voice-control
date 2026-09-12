@@ -43,7 +43,10 @@ export async function handle(method: string, url: URL, deps: RouteDeps): Promise
     };
     const outcome = await deps.search.search(criteria);
     if (!outcome.ok) {
-      return { status: 429, body: { ok: false, reason: outcome.reason, resetsAt: outcome.quota.resetsAt } };
+      return {
+        status: 429,
+        body: { ok: false, reason: outcome.reason, detail: outcome.detail, resetsAt: outcome.quota.resetsAt },
+      };
     }
     return {
       status: 200,

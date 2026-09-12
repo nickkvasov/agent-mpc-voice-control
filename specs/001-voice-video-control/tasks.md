@@ -179,24 +179,36 @@ confirm the visible result set matches the stated criteria at each step.
 
 ### Tests for User Story 2
 
-- [ ] T048 [P] [US2] Contract tests for `catalog.*` and `queue.*` tools in `tests/contract/catalog-queue-tools.test.ts`
-- [ ] T049 [P] [US2] **Test asserting `catalog.narrow` issues no network call** — the quota-preservation property the feature depends on (R2) — in `tests/integration/narrow-spends-no-quota.test.ts`
-- [ ] T050 [P] [US2] Playwright timing test for SC-012 measured from end of speech in `tests/e2e/discovery-timing.spec.ts`
+- [X] T048 [P] [US2] Contract tests for `catalog.*` and `queue.*` tools in `tests/contract/catalog-queue-tools.test.ts`
+- [X] T049 [P] [US2] **Test asserting `catalog.narrow` issues no network call** — the quota-preservation property the feature depends on (R2) — in `tests/integration/narrow-spends-no-quota.test.ts`
+- [X] T050 [P] [US2] Playwright timing test for SC-012 measured from end of speech in `tests/e2e/discovery-timing.spec.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T051 [US2] Implement result-set state holding the current results and the criteria applied in `src/catalog/results.ts`
-- [ ] T052 [US2] Declare `catalog.search` returning `criteriaApplied` and `quotaRemaining`, and `quota_exhausted` when spent, in `src/catalog/tools/search.ts`
-- [ ] T053 [US2] Declare `catalog.narrow` operating **locally** over the current result set in `src/catalog/tools/narrow.ts`
-- [ ] T054 [P] [US2] Declare `catalog.resolveReference` returning candidates rather than choosing when ambiguous (FR-018) in `src/catalog/tools/resolve.ts`
-- [ ] T055 [P] [US2] Declare `catalog.getCurrentResults` and `catalog.getQuota` in `src/catalog/tools/read.ts`
-- [ ] T056 [US2] Implement quota state display including the `unknown` case in `src/catalog/quota-indicator.tsx`
-- [ ] T057 [US2] Implement quota-exhausted behavior keeping loaded results, queue and playback usable (FR-022) in `src/catalog/quota-degradation.ts`
-- [ ] T058 [P] [US2] Implement queue state and persistence in `src/queue/queue.ts`
-- [ ] T059 [P] [US2] Declare `queue.add`/`remove`/`reorder`/`get` in `src/queue/tools/manage.ts`
-- [ ] T060 [US2] Declare `queue.clear` with confirmation above the five-item threshold in `src/queue/tools/clear.ts`
-- [ ] T061 [US2] Implement skipping unavailable queue items while stating the specific reason (FR-036) in `src/queue/skip-unavailable.ts`
-- [ ] T062 [P] [US2] Implement results and queue UI, made visible whenever the queue changes, in `src/catalog/results-view.tsx` and `src/queue/queue-view.tsx`
+- [X] T051 [US2] Implement result-set state holding the current results and the criteria applied in `src/catalog/results.ts`
+- [X] T052 [US2] Declare `catalog.search` returning `criteriaApplied` and `quotaRemaining`, and `quota_exhausted` when spent, in `src/catalog/tools/search.ts`
+- [X] T053 [US2] Declare `catalog.narrow` operating **locally** over the current result set in `src/catalog/tools/narrow.ts`
+- [X] T054 [P] [US2] Declare `catalog.resolveReference` returning candidates rather than choosing when ambiguous (FR-018) in `src/catalog/tools/resolve.ts`
+- [X] T055 [P] [US2] Declare `catalog.getCurrentResults` and `catalog.getQuota` in `src/catalog/tools/read.ts`
+- [X] T056 [US2] Implement quota state display including the `unknown` case in `src/catalog/quota-indicator.tsx`
+- [X] T057 [US2] Implement quota-exhausted behavior keeping loaded results, queue and playback usable (FR-022) in `src/catalog/quota-degradation.ts`
+- [X] T058 [P] [US2] Implement queue state and persistence in `src/queue/queue.ts`
+- [X] T059 [P] [US2] Declare `queue.add`/`remove`/`reorder`/`get` in `src/queue/tools/manage.ts`
+- [X] T060 [US2] Declare `queue.clear` with confirmation above the five-item threshold in `src/queue/tools/clear.ts`
+- [X] T061 [US2] Implement skipping unavailable queue items while stating the specific reason (FR-036) in `src/queue/skip-unavailable.ts`
+- [X] T062 [P] [US2] Implement results and queue UI, made visible whenever the queue changes, in `src/catalog/results-view.tsx` and `src/queue/queue-view.tsx`
+
+### Two things US2 does not yet have, named rather than implied
+
+- **The conversational path is unreachable.** Every catalog and queue tool
+  exists and is tested, and the UI drives them by hand, but nothing carries an
+  utterance to them: the WebSocket gateway still has no task (recorded at the end
+  of Phase 2). "find talks about state machines" still answers *the assistant is
+  not connected*. US2's acceptance scenarios are satisfied by the tools and by
+  hand; they are not yet satisfied conversationally.
+- **The live catalog call is unverified.** There is no YouTube key in this
+  environment, so the upstream `search.list` path has never run. Everything from
+  the response onward is covered by fixtures; the request itself is not.
 
 **Checkpoint**: US2 independently testable.
 

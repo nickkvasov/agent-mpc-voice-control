@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { CatalogSearch } from '../../server/catalog-proxy/search.ts';
-import { SearchQuota } from '../../server/catalog-proxy/quota.ts';
+import { SearchBudget } from '../../server/catalog-proxy/budget.ts';
 import { mintTicket, __resetTickets, __ticketCount } from '../../server/ticket/route.ts';
 
 /** Regression cover for the Gate C findings on this phase's commit. */
@@ -8,15 +8,15 @@ describe('Gate C regressions', () => {
   beforeEach(() => __resetTickets());
 
   it('reports an unknown quota balance until prior usage is established', () => {
-    const q = new SearchQuota();
+    const q = new SearchBudget();
     expect(q.snapshot().searchCallsRemaining).toBeNull();
     q.restore(7);
-    expect(q.snapshot().searchCallsRemaining).toBe(93);
+    expect(q.snapshot().searchCallsRemaining).toBe(83);
   });
 
   it('coalesces concurrent identical searches into one call and one unit of quota', async () => {
     let fetches = 0;
-    const q = new SearchQuota();
+    const q = new SearchBudget();
     q.restore(0);
     const s = new CatalogSearch(async () => {
       fetches += 1;
@@ -25,11 +25,11 @@ describe('Gate C regressions', () => {
     }, q);
     await Promise.all(Array.from({ length: 5 }, () => s.search({ query: 'state machines' })));
     expect(fetches).toBe(1);
-    expect(q.spent()).toBe(1);
+    expect(q.spentToday()).toBe(1);
   });
 
   it('does not cache a failed search', async () => {
-    const q = new SearchQuota();
+    const q = new SearchBudget();
     q.restore(0);
     let calls = 0;
     const s = new CatalogSearch(async () => {

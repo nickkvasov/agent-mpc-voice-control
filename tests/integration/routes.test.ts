@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { handle, parseIso8601Duration } from '../../server/routes.ts';
 import { CatalogSearch } from '../../server/catalog-proxy/search.ts';
-import { SearchQuota } from '../../server/catalog-proxy/quota.ts';
+import { SearchBudget } from '../../server/catalog-proxy/budget.ts';
 import { __resetTickets } from '../../server/ticket/route.ts';
 
 function deps(over: Partial<Parameters<typeof handle>[2]> = {}) {
-  const quota = new SearchQuota();
-  quota.restore(0);
+  const budget = new SearchBudget();
+  budget.restore(0);
   return {
     gatewayOrigin: 'wss://gw.example',
-    search: new CatalogSearch(async () => [{ videoId: 'M7lc1UVf-VE', title: 't', channelTitle: 'c', publishedAt: 0 }], quota),
+    search: new CatalogSearch(async () => [{ videoId: 'M7lc1UVf-VE', title: 't', channelTitle: 'c', publishedAt: 0 }], budget),
     fetchVideoDetails: async () => [],
     agentAvailable: () => true,
     ...over,
@@ -46,8 +46,8 @@ describe('HTTP routes', () => {
   });
 
   it('returns 429 with a reset time when the daily allowance is spent', async () => {
-    const spent = new SearchQuota();
-    spent.restore(100);
+    const spent = new SearchBudget();
+    spent.restore(90);
     const d = deps({ search: new CatalogSearch(async () => [], spent) });
     const r = await handle('GET', u('/api/catalog/search?q=x'), d);
     expect(r?.status).toBe(429);

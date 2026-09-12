@@ -1,4 +1,4 @@
-import { SearchQuota, type QuotaSnapshot } from './quota.ts';
+import { SearchBudget, type BudgetSnapshot } from './budget.ts';
 
 /**
  * GET /api/catalog/search — proxies search.list, holding the key and the cache.
@@ -22,13 +22,13 @@ export interface SearchCriteria {
 }
 
 export type SearchOutcome =
-  | { readonly ok: true; readonly results: readonly SearchResultItem[]; readonly criteriaApplied: SearchCriteria; readonly fromCache: boolean; readonly quota: QuotaSnapshot }
-  | { readonly ok: false; readonly reason: 'quota_exhausted'; readonly quota: QuotaSnapshot };
+  | { readonly ok: true; readonly results: readonly SearchResultItem[]; readonly criteriaApplied: SearchCriteria; readonly fromCache: boolean; readonly quota: BudgetSnapshot }
+  | { readonly ok: false; readonly reason: 'quota_exhausted'; readonly detail: string; readonly quota: BudgetSnapshot };
 
 export type SearchFetcher = (criteria: SearchCriteria) => Promise<readonly SearchResultItem[]>;
 
 export class CatalogSearch {
-  readonly #quota: SearchQuota;
+  readonly #budget: SearchBudget;
   readonly #fetch: SearchFetcher;
   readonly #cache = new Map<string, readonly SearchResultItem[]>();
   /**
@@ -38,9 +38,9 @@ export class CatalogSearch {
    */
   readonly #inFlight = new Map<string, Promise<readonly SearchResultItem[]>>();
 
-  constructor(fetcher: SearchFetcher, quota: SearchQuota = new SearchQuota()) {
+  constructor(fetcher: SearchFetcher, budget: SearchBudget = new SearchBudget()) {
     this.#fetch = fetcher;
-    this.#quota = quota;
+    this.#budget = budget;
   }
 
   async search(criteria: SearchCriteria): Promise<SearchOutcome> {
@@ -49,29 +49,32 @@ export class CatalogSearch {
     if (cached !== undefined) {
       // A cache hit spends no quota, and says so: the page must be able to tell
       // a fresh answer from a remembered one rather than present both as current.
-      return { ok: true, results: cached, criteriaApplied: criteria, fromCache: true, quota: this.#quota.snapshot() };
+      return { ok: true, results: cached, criteriaApplied: criteria, fromCache: true, quota: this.#budget.snapshot() };
     }
     const pending = this.#inFlight.get(key);
     if (pending !== undefined) {
       const results = await pending;
-      return { ok: true, results, criteriaApplied: criteria, fromCache: true, quota: this.#quota.snapshot() };
+      return { ok: true, results, criteriaApplied: criteria, fromCache: true, quota: this.#budget.snapshot() };
     }
-    if (!this.#quota.trySpend()) {
-      return { ok: false, reason: 'quota_exhausted', quota: this.#quota.snapshot() };
+    // The budget is checked BEFORE any upstream call: choosing this tool does
+    // not by itself authorise spending (NOTES.md 2026-09-12).
+    const decision = this.#budget.request();
+    if (!decision.allowed) {
+      return { ok: false, reason: 'quota_exhausted', detail: decision.detail, quota: this.#budget.snapshot() };
     }
     const call = this.#fetch(criteria);
     this.#inFlight.set(key, call);
     try {
       const results = await call;
       this.#cache.set(key, results);
-      return { ok: true, results, criteriaApplied: criteria, fromCache: false, quota: this.#quota.snapshot() };
+      return { ok: true, results, criteriaApplied: criteria, fromCache: false, quota: this.#budget.snapshot() };
     } finally {
       this.#inFlight.delete(key);
     }
   }
 
-  quota(): QuotaSnapshot {
-    return this.#quota.snapshot();
+  quota(): BudgetSnapshot {
+    return this.#budget.snapshot();
   }
 }
 

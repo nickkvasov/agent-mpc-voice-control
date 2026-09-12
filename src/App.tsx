@@ -8,6 +8,11 @@ import { playerStateFromCode, PLAYER_STATE } from './vocab/player-states.ts';
 import { ActivityRecorder, createInMemoryActivityStore } from './activity/record-writer.ts';
 import { invokeRecorded } from './app/invoke.ts';
 import { CommandChain } from './app/command-chain.ts';
+import { ResultsView } from './catalog/results-view.tsx';
+import { QueueView } from './queue/queue-view.tsx';
+import { EMPTY, narrowLocally, type ResultSet } from './catalog/results.ts';
+import { searchCatalog, type QuotaView } from './catalog/client.ts';
+import { add as queueAdd, remove as queueRemove, EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
 import { TOOL } from './vocab/tool-names.ts';
 import { pause, play, stop } from './player/tools/transport.ts';
 import { seek } from './player/tools/seek.ts';
@@ -71,6 +76,10 @@ export function App() {
   const [interpretation, setInterpretation] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
 
+  const [results, setResults] = useState<ResultSet>(EMPTY);
+  const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE);
+  const [quota, setQuota] = useState<QuotaView>({ searchCallsRemaining: null, resetsAt: null });
+
   /** One order for voice, typing and buttons alike (FR-038). */
   const chain = useRef<CommandChain | null>(null);
   chain.current ??= new CommandChain({
@@ -120,6 +129,22 @@ export function App() {
     [run],
   );
 
+  const doSearch = useCallback(async (query: string) => {
+    const r = await searchCatalog({ query });
+    if (!r.ok) {
+      setOutcome(`Refused: ${r.detail}`);
+      return;
+    }
+    setQuota(r.value.quota);
+    setResults({ items: r.value.items, criteria: r.value.criteriaApplied, operation: 'fresh_search', fromCache: r.value.fromCache });
+    setOutcome(`Found ${String(r.value.items.length)}.`);
+  }, []);
+
+  const doNarrow = useCallback((maxMinutes: number) => {
+    // Local: spends no allowance (research.md R2).
+    setResults((cur) => narrowLocally(cur, { maxDurationSeconds: maxMinutes * 60 }));
+  }, []);
+
   const captions = p.getOption('captions', 'track');
   const track = typeof captions === 'object' && captions !== null
     ? String((captions as Record<string, unknown>)['languageCode'] ?? '')
@@ -131,6 +156,42 @@ export function App() {
       <PushToTalk onUtterance={(pending) => enqueue(() => pending)} />
       <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t))} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
+      <section data-testid="discovery" style={{ margin: '0.5rem 0' }}>
+        <form
+          data-testid="search-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = new FormData(e.currentTarget).get('q');
+            if (typeof q === 'string' && q.trim() !== '') void doSearch(q);
+          }}
+        >
+          <label>
+            Search the catalog <input name="q" data-testid="search-input" placeholder="state machines" />
+          </label>{' '}
+          <button type="submit" data-testid="search-submit">Search</button>{' '}
+          <button type="button" data-testid="narrow-short" onClick={() => doNarrow(10)}>
+            Only the short ones
+          </button>
+        </form>
+      </section>
+      <ResultsView
+        results={results}
+        quota={quota}
+        onPlay={(id) => setOutcome(`Would play ${id} once the player embed lands.`)}
+        onQueue={(id) => {
+          const r = queueAdd(queue, [id]);
+          setOutcome(r.ok ? 'Queued.' : `Refused: ${r.detail}`);
+          if (r.ok) setQueue(r.value);
+        }}
+      />
+      <QueueView
+        queue={queue}
+        onRemove={(id) => {
+          const r = queueRemove(queue, [id]);
+          setOutcome(r.ok ? 'Removed from the queue.' : `Refused: ${r.detail}`);
+          if (r.ok) setQueue(r.value);
+        }}
+      />
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. */}
       <Controls

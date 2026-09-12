@@ -143,5 +143,36 @@ bare success would have denied them.
 cannot confirm it", provided the detail says so. What is forbidden is a detail
 that implies the opposite of what happened.
 
+### 2026-09-12 — who decides whether an utterance narrows or re-searches?
+
+**The problem.** 100 `search.list` calls per day for the whole deployment.
+Narrowing is free; a fresh search costs 1 of 100. A conversational interface
+invites reformulation, so the wrong rule empties the day in one sitting.
+
+**I offered two readings** — the model decides by choosing a tool, or the
+application decides by trying local narrowing first. **Codex rejected both** and
+gave a third that is better than either: *the model interprets intent, the
+application controls execution and spending.* Choosing a tool must not, by
+itself, authorise spending.
+
+**The insight I had missed:** a 100/day counter prevents *exceeding* the quota,
+not *exhausting* it. Both are failures; only the second is likely. The fix is a
+replenishing budget rather than a daily counter — burst capacity 2, one
+allowance back every 16 minutes, a working cap of 90 with 10 held in reserve. A
+sitting cannot drain the day no matter how the model behaves.
+
+**Adopted.** `catalog.search` checks the budget before calling YouTube.
+`catalog.narrow` never falls back to searching — the two mean different things,
+and substituting one for the other would answer a question nobody asked. Every
+result-returning call states the operation actually performed and the complete
+effective criteria, so "Started a fresh search" is emitted by the code that
+spent the quota rather than by a model describing what it thinks it did.
+
+Distinct outcomes, none masquerading as success: `unchanged` when criteria
+repeat, `ambiguous_reference` when intent is unclear, `quota_exhausted` when the
+budget denies. Note that a newly applied filter legitimately leaving the same
+videos visible is NOT `unchanged` — the criteria changed even though the set did
+not.
+
 Add further entries as under-determined decisions arise — two defensible readings of the spec, not
 merely hard problems.

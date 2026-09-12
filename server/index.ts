@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { CatalogSearch } from './catalog-proxy/search.ts';
-import { SearchQuota } from './catalog-proxy/quota.ts';
+import { SearchBudget } from './catalog-proxy/budget.ts';
 import { handle, requestUrl, writeReply, type RouteDeps } from './routes.ts';
 
 /**
@@ -14,7 +14,7 @@ import { handle, requestUrl, writeReply, type RouteDeps } from './routes.ts';
 const PORT = Number(process.env['PORT'] ?? 8787);
 
 export function createDeps(): RouteDeps {
-  const quota = new SearchQuota();
+  const budget = new SearchBudget();
   return {
     gatewayOrigin: process.env['GATEWAY_ORIGIN'] ?? 'wss://localhost:8788',
     search: new CatalogSearch(async () => {
@@ -22,7 +22,7 @@ export function createDeps(): RouteDeps {
       // refuses rather than returning a plausible empty list, which would read
       // as "nothing matched" (IMMUNE-U).
       throw new Error('catalog fetcher not configured');
-    }, quota),
+    }, budget),
     fetchVideoDetails: async () => {
       throw new Error('video details fetcher not configured');
     },
