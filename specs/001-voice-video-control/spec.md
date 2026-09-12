@@ -154,8 +154,8 @@ exactly the intended references, and that every discarding request halts for con
    **Then** the system names the specific video and collection and waits for explicit confirmation.
 4. **Given** a confirmation prompt is open, **When** the person says anything other than a clear
    confirmation, **Then** the action is abandoned rather than proceeding.
-5. **Given** the person asks to empty a collection, **When** it holds more references than a stated
-   safety threshold, **Then** the system states the count and requires confirmation naming that count.
+5. **Given** the person asks to empty a collection, **When** it holds more than five references,
+   **Then** the system states the count and requires confirmation naming that count.
 
 ---
 
@@ -254,15 +254,20 @@ exactly the intended references, and that every discarding request halts for con
 - **FR-026**: System MUST require explicit confirmation, naming the specific target, before discarding
   any curation the person created.
 - **FR-027**: System MUST state the affected reference count and require confirmation of that count
-  before any action affecting more references than a defined bulk threshold.
+  before any action affecting more than five references.
 - **FR-028**: System MUST treat an unclear response to a confirmation prompt as a refusal.
 
 #### Transparency and recovery
 
 - **FR-029**: System MUST record every action the assistant takes, with what it did, to which items,
   and when, described in the same vocabulary the visible interface uses.
-- **FR-030**: Users MUST be able to undo any reversible recorded action and have that prior state
-  restored.
+- **FR-030**: Users MUST be able to undo any reversible action in the retained activity record — not
+  only the most recent one — and have that prior state restored.
+- **FR-044**: System MUST retain the activity record for at least the current session, MUST state when
+  an entry can no longer be undone because later actions depend on it, and MUST NOT offer an undo it
+  cannot perform.
+- **FR-045**: System MUST disclose that command text — and the titles of videos it acts on — are sent
+  to an external language model service, and MUST NOT imply that everything stays on the device.
 - **FR-031**: System MUST record undo actions themselves.
 - **FR-032**: System MUST state plainly when an action failed, including what was applied and what was
   not — a partially applied action MUST NOT be recorded as a success.
@@ -287,8 +292,13 @@ exactly the intended references, and that every discarding request halts for con
 - **FR-039**: System MUST persist the person's curation — collections, tags, labels — across sessions.
 - **FR-040**: System MUST persist playback position per video so a resumed video continues where it
   stopped.
-- **FR-041**: System MUST make visible what it retains of voice recordings and command transcripts, and
-  MUST allow the person to clear that history.
+- **FR-041**: System MUST make visible what it retains of command transcripts, and MUST allow the
+  person to clear that history.
+- **FR-043**: System MUST recognize speech on the person's own device. Raw audio MUST NOT be
+  transmitted to any external service, and MUST NOT be retained once the utterance has been
+  recognized — only the resulting text reaches the assistant.
+- **FR-042**: System MUST operate without a signed-in catalog account, and MUST NOT read or modify the
+  person's account data at the external catalog.
 
 ### Key Entities
 
@@ -304,14 +314,16 @@ exactly the intended references, and that every discarding request halts for con
 - **Command**: One instruction from the person — its spoken or typed form, the system's interpretation
   of it, and its outcome.
 - **Activity Record**: The ordered history of actions the assistant took, each linked to the command
-  that caused it, whether it succeeded, and whether it can be undone.
+  that caused it, whether it succeeded, and whether it can still be undone. Retained for at least the
+  current session; an entry becomes un-undoable once a later action depends on it, and says so.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
 - **SC-001**: A person can pause, seek, change speed and toggle captions entirely by voice, with the
-  result visible within one second of the command being understood.
+  result visible within one second of the person finishing speaking — recognition and assistant
+  round-trip included, not excluded.
 - **SC-002**: 95% of playback commands spoken in a quiet room by a fluent speaker are carried out
   correctly on the first attempt.
 - **SC-003**: A person can locate and start a specific video by description alone, without touching a
@@ -329,6 +341,9 @@ exactly the intended references, and that every discarding request halts for con
 - **SC-010**: With the assistant disconnected, every task in this specification remains completable by
   hand.
 - **SC-011**: No audio is captured at any moment when the interface does not show that it is capturing.
+- **SC-012**: Discovery, queueing and curation commands produce a visible result within three seconds
+  of the person finishing speaking.
+- **SC-013**: No raw audio leaves the person's device, under any command.
 
 ## Assumptions
 
@@ -338,6 +353,13 @@ exactly the intended references, and that every discarding request halts for con
   manual and conversational control can be used interchangeably.
 - **Single person per session.** Multi-user accounts, sharing and permissions are out of scope. One
   person, one set of collections, one session at a time.
+- **Speech is recognized on the device, but the assistant is not.** Audio never leaves the device; the
+  resulting text does, because the agent runs on an external language model service (see
+  Dependencies). This is why FR-041 speaks of transcripts rather than recordings, and why FR-045
+  requires the boundary to be disclosed rather than glossed over.
+- **No account sign-in.** The system reaches YouTube anonymously: the public catalog only. The
+  person's own account, subscriptions, Watch Later and playlists are neither read nor written, and
+  signing in is not offered in this release.
 - **The person's curation is local to this application.** Collections, tags and labels created here are
   not written back to the external catalog, and the person's existing playlists there are not modified
   by this feature.
@@ -359,11 +381,17 @@ exactly the intended references, and that every discarding request halts for con
   than merely its implementation: actions are available only while the part of the interface that
   declares them is on screen (FR-035), and the application remains the single owner of its state
   (FR-005, SC-010).
-- **An agent runtime and a connection to it.** The foundation supplies the in-page half only; the
-  service the assistant runs in, and the credential exchange that lets the page reach it, are supplied
-  by this project and are a prerequisite for any conversational capability.
+- **The Claude API (Anthropic) as the language model service driving the assistant.** The assistant is
+  an agent loop over that service: it receives the person's command text plus the actions the page
+  currently declares, and decides which to call. The `agent-mcp-react` foundation supplies the in-page
+  half only; the runtime the agent loop executes in, and the credential exchange that lets the page
+  reach it, are supplied by this project and are a prerequisite for any conversational capability.
+  Because the agent runs off-device, command text leaves the device even though audio does not — see
+  FR-045.
 - **YouTube, as both catalog and player.** Search and metadata come from its data service; playback
-  happens in its player, on its terms. This is a hard external boundary, and several requirements exist
+  happens in its player, on its terms. Access is anonymous — the public catalog only — which caps
+  discovery at what public search exposes and makes the quota in FR-022 an application-wide budget
+  rather than a per-person one. This is a hard external boundary, and several requirements exist
   only because of it: quota and rate limits (FR-022), advertisements (FR-014), availability and
   embedding restrictions (FR-036), and platform refusal of volume changes (FR-009). Its terms of
   service govern what this application may do with the player.
@@ -380,6 +408,35 @@ exactly the intended references, and that every discarding request halts for con
   means removing a reference from the person's own collection, never destroying a video — which is why
   FR-026 speaks of discarding curation rather than deleting content, and why User Story 4 is about
   curation rather than library management.
+- **Q: Does the person sign in to a YouTube account?** → **A: No — anonymous, public catalog only.**
+  FR-042 forbids reading or modifying account data, and the Assumptions record that signing in is not
+  offered in this release. Discovery is therefore bounded by public search, and the daily quota of
+  FR-022 is shared across everyone using the application rather than held per person.
+- **Q: What is the end-to-end latency budget for a spoken command?** → **A: Split — under 1s for
+  playback, under 3s for everything else** (chosen on the user's behalf; they were indifferent).
+  SC-001 previously started its clock at "the command being understood", which excluded recognition
+  and the assistant round-trip — the part the person actually waits through. It now starts when they
+  stop speaking, and SC-012 carries the looser budget for discovery, queueing and curation. The split
+  exists because a spoken "pause" that takes longer than about a second stops feeling like a control,
+  whereas a search that takes three is unremarkable.
+- **Q: Does raw audio leave the device?** → **A: No — recognition is on-device; only text reaches the
+  assistant** (chosen on the user's behalf). FR-043 states it and SC-013 makes it testable. FR-041 was
+  corrected in consequence: it governs transcripts, since there are no retained recordings. This keeps
+  faith with the push-to-talk decision — having chosen the conservative microphone posture, shipping
+  the audio to a third party would have undone the point of it.
+- **Q: How deep does undo go, and how long does the activity record last?** → **A: Any reversible
+  entry in the record, not just the last; retained for at least the session** (chosen on the user's
+  behalf). FR-030 now says "not only the most recent", and FR-044 adds the honest half: an entry that
+  later actions depend on becomes un-undoable and must say so, rather than offering an undo that
+  silently fails.
+- **Q: What counts as a bulk action needing a counted confirmation?** → **A: More than five
+  references** (chosen on the user's behalf). FR-027 and the User Story 4 scenario previously said
+  "a defined bulk threshold" and "a stated safety threshold" — unquantified, and therefore untestable.
+- **Q: What drives the agent?** → **A: The Claude API (Anthropic)** (stated by the user mid-session).
+  Recorded in Dependencies. It has one consequence the specification had to absorb rather than merely
+  note: the agent runs off-device, so command text and video titles leave the device even though
+  FR-043 keeps audio on it. FR-045 now requires that boundary to be disclosed, so the on-device
+  recognition decision is not read as a promise that nothing is transmitted.
 - **Q: Is the microphone always listening, or push-to-talk?** → **A: Push-to-talk for this release,
   with a wake word as a possible opt-in later.** FR-002 requires explicit activation and forbids wake
   word listening in this release; SC-011 makes the absence of silent capture testable. A future wake
