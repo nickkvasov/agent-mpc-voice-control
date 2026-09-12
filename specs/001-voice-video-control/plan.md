@@ -60,10 +60,11 @@ criteria.
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-The governing constitution is `.claude/kaliper/constitution.md` (IMMUNE).
-**`.specify/memory/constitution.md` is still an unfilled template** and owns nothing; per IMMUNE-N it
-must not become a second authority — either fill it via `/speckit-constitution` and delete the kaliper
-copy, or leave it unused.
+Two constitutions govern, and they do not overlap.
+`.specify/memory/constitution.md` v1.0.0 owns **what this system must be** (Principles I–VII);
+`.claude/kaliper/constitution.md` owns **how work is done** (IMMUNE). Neither restates the other —
+each project principle that is an instance of an IMMUNE principle cites it rather than repeating it,
+which is what keeps IMMUNE-N satisfied with both files present.
 
 | Principle | Gate | Pre-Phase 0 | Post-Phase 1 |
 |---|---|---|---|
@@ -73,6 +74,18 @@ copy, or leave it unused.
 | **IMMUNE-U** Unexpected states fail loud | No silent success, no convenience default | **PASS** — SC-009 requires a stated reason for every refusal | **PASS** — `{ok:false, reason}` is structural; three-valued `hasCaptions`/`chapters`/`quotaRemaining` make "unknown" representable; `Command` has no terminal state without an outcome |
 | **IMMUNE-N** No duplicated authority | One owner per truth | **PASS** — the app owns state; the assistant holds none | **PASS with one tracked item** — two command interpreters; contained by making the tools the sole owner of meaning (see Complexity Tracking) |
 | **IMMUNE-E** Every state explainable | State reconstructable from evidence, negatives included | **PASS** — FR-029..FR-033 | **PASS** — `ActivityRecord` is this principle as a schema; `failureDetail` records the negative; `supersededBy` names why an undo is unavailable instead of hiding the button |
+
+### Project principles (`.specify/memory/constitution.md` v1.0.0)
+
+| Principle | Where this design satisfies it |
+|---|---|
+| **I.** The application owns its state | The assistant holds none; tools mutate app state only (FR-005, SC-010) |
+| **II.** One tool surface | `contracts/mcp-tools.md` is the sole owner of meaning; `dom` and `evaluate` permanently off; tools declared beside the state they change, so FR-035 falls out of the structure |
+| **III.** No bare success | `{ok:false, reason}` is contract-wide with one test, not per-handler review |
+| **IV.** Unknown is a value | Three-valued `hasCaptions`, `chapters`, `searchCallsRemaining` in `data-model.md` |
+| **V.** Recorded and reversible | `ActivityRecord` schema; `supersededBy` enforces FR-044 in data, not UI |
+| **VI.** Destruction confirms | `confirmation: 'required'` on discarding tools; no "assume yes" resolver path |
+| **VII.** Boundaries stated | FR-043 + FR-045 together; R1's refusal path rather than a silent remote fallback |
 
 **Both gates pass.** One item is tracked below rather than waived.
 
