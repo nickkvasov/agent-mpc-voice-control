@@ -3,6 +3,7 @@ import { createAjvValidator } from 'agent-mcp-react/validation';
 import type { ReactNode } from 'react';
 import { ActivityRecorder, createInMemoryActivityStore } from '../activity/record-writer.ts';
 import { CAPABILITIES } from './capabilities.ts';
+import { recordObservedCall } from '../activity/from-observed-call.ts';
 
 /**
  * T020 — the provider wiring.
@@ -32,6 +33,10 @@ export function McpRoot({ children, getTicketUrl }: McpRootProps) {
       server={{ name: 'voice-video-control', version: '0.1.0' }}
       capabilities={CAPABILITIES}
       validation={{ validator: createAjvValidator() }}
+      // Terminal call events feed the activity record. Start is not recorded:
+      // one call must produce exactly one entry (SC-006).
+      onToolResult={(event) => recordObservedCall(recorder, event)}
+      onToolError={(event) => recordObservedCall(recorder, event)}
       onUnexpectedState={(failure) => {
         // Reported, never swallowed. This is the operator's channel for broken
         // invariants; a silent catch here is the defect this whole design is

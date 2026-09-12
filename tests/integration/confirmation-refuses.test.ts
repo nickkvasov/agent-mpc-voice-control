@@ -34,4 +34,12 @@ describe('confirmation resolver', () => {
     expect(resolveCountedConfirmation('no, not 40', 40)).toBe('refused');
     expect(resolveCountedConfirmation('wait, 40?', 40)).toBe('refused');
   });
+
+  it('refuses agreement buried in a sentence that withdraws it', () => {
+    // Found by codex at Gate C. A token scan confirmed these; only validating
+    // the whole response refuses them.
+    expect(resolveCountedConfirmation("yes but don't delete all 40", 40)).toBe('refused');
+    expect(resolveCountedConfirmation('yes, maybe 40', 40)).toBe('refused');
+    expect(resolveCountedConfirmation('yes 40 or was it 50', 40)).toBe('refused');
+  });
 });

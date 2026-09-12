@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -12,7 +12,12 @@ import { describe, expect, it } from 'vitest';
  */
 describe('no credentials in the browser bundle', () => {
   it('neither key name nor a key-shaped value appears in dist/', () => {
-    if (!existsSync('dist')) execSync('npm run build', { stdio: 'ignore' });
+    // Always build the current revision. Found at Gate C: reusing an existing
+    // dist scans the PREVIOUS build, and because the fast gate runs tests before
+    // build, a credential leak introduced after a clean build would pass this
+    // check and then be emitted unexamined.
+    rmSync('dist', { recursive: true, force: true });
+    execSync('npm run build', { stdio: 'ignore' });
 
     const files: string[] = [];
     const walk = (dir: string): void => {

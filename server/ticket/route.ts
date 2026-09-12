@@ -18,6 +18,10 @@ interface Ticket {
 const issued = new Map<string, Ticket>();
 
 export function mintTicket(gatewayOrigin: string): { url: string } {
+  // Prune on issuance. Found at Gate C: without this the map retained every
+  // ticket ever minted, so a long-running service grew on each reconnect
+  // despite the 30-second lifetime.
+  pruneExpired();
   const token = randomUUID();
   issued.set(token, { token, expiresAt: Date.now() + TICKET_TTL_MS, used: false });
   return { url: `${gatewayOrigin}/mcp?ticket=${token}` };
@@ -40,7 +44,18 @@ export function redeemTicket(token: string): TicketCheck {
   return { ok: true };
 }
 
+function pruneExpired(now: number = Date.now()): void {
+  for (const [token, t] of issued) {
+    if (t.used || now > t.expiresAt) issued.delete(token);
+  }
+}
+
 /** Exposed for tests; there is no other way to observe the store. */
 export function __resetTickets(): void {
   issued.clear();
+}
+
+/** Exposed for tests; the store is otherwise unobservable. */
+export function __ticketCount(): number {
+  return issued.size;
 }
