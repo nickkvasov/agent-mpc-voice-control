@@ -30,13 +30,21 @@ export function createDeps(): RouteDeps {
   };
 }
 
+/**
+ * Built ONCE per server, not per request. Found at Gate C: constructing these
+ * per request gave every call a fresh SearchQuota, so the daily counter never
+ * accumulated and the cache and in-flight deduplication could never serve a
+ * second caller — the whole point of holding the allowance server-side.
+ */
+const deps = createDeps();
+
 export const server = createServer((req, res) => {
   void (async () => {
     if (req.method === 'GET' && req.url === '/health') {
       await writeReply(res, { status: 200, body: { ok: true } });
       return;
     }
-    const reply = await handle(req.method ?? 'GET', requestUrl(req), createDeps());
+    const reply = await handle(req.method ?? 'GET', requestUrl(req), deps);
     await writeReply(
       res,
       reply ?? {
@@ -44,7 +52,21 @@ export const server = createServer((req, res) => {
         body: { ok: false, reason: 'not_implemented', detail: `No route for ${req.method} ${req.url}` },
       },
     );
-  })();
+  })().catch(async (cause: unknown) => {
+    // Found at Gate C by reproducing it: a rejected handler in this detached
+    // async function was an unhandled rejection, and one valid catalog request
+    // terminated the process with no response at all. A failure must surface as
+    // a typed reply, never as a dead server (IMMUNE-U).
+    process.stderr.write(`[backend] request failed: ${String(cause)}\n`);
+    try {
+      await writeReply(res, {
+        status: 500,
+        body: { ok: false, reason: 'internal_failure', detail: String(cause) },
+      });
+    } catch {
+      res.destroy();
+    }
+  });
 });
 
 // Only listen when run directly, so tests can import the server without

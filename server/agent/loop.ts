@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { buildToolNameMap } from './tool-names.ts';
 
 /**
  * The agent host.
@@ -77,18 +78,23 @@ export async function runAgentTurn(
   transport: ToolTransport,
   commandText: string,
 ): Promise<AgentTurnResult> {
-  const declared = await transport.listTools();
-  const tools = declared.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
-  }));
-
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: commandText }];
   const toolCalls: { name: string; outcome: ToolCallOutcome }[] = [];
   let text = '';
 
   for (let i = 0; i < MAX_ITERATIONS; i += 1) {
+    // Re-queried every iteration, not once per turn. Tools exist only while the
+    // UI declaring them is on screen, so a person changing view mid-turn would
+    // otherwise leave the model advertising tools that are gone and blind to
+    // ones that appeared (FR-035).
+    const declared = await transport.listTools();
+    const names = buildToolNameMap(declared.map((t) => t.name));
+    const tools = declared.map((t) => ({
+      name: names.toApi.get(t.name) ?? t.name,
+      description: t.description,
+      input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+    }));
+
     const stream = client.messages.stream({
       model: AGENT_MODEL,
       max_tokens: 8192,
@@ -113,8 +119,10 @@ export async function runAgentTurn(
     // trains the model to stop making parallel calls.
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const use of uses) {
-      const outcome = await transport.callTool(use.name, use.input);
-      toolCalls.push({ name: use.name, outcome });
+      // Back to the application's own name before it reaches the page.
+      const appName = names.fromApi.get(use.name) ?? use.name;
+      const outcome = await transport.callTool(appName, use.input);
+      toolCalls.push({ name: appName, outcome });
       results.push({
         type: 'tool_result',
         tool_use_id: use.id,

@@ -47,6 +47,35 @@ Referer: the IFrame API requires a real origin.
 http(s). Diagnosing 153 as a content problem would have sent the captions work down the wrong path
 entirely — the spike nearly concluded the API could not do something it does.
 
+### 2026-09-12 — a mock client hid an API contract the real one enforces
+
+**What happened.** The agent loop forwarded the application's own tool names —
+`playback.pause` — straight to the Messages API. Anthropic requires custom tool
+names to match `^[a-zA-Z0-9_-]{1,128}$`, so every real request would have failed
+validation before a single tool ran. Six loop tests passed, because a mock client
+accepts any name.
+
+**Why it matters beyond this bug.** The suite could not have caught it at any
+level of diligence: the constraint lives in the provider, not in our code, and
+the mock is what made the tests runnable in the first place. Only a reader who
+knew the external contract could see it. This is the concrete local case for
+Gate C existing at all.
+
+**Standing rule.** Where a mock stands in for an external service, its
+acceptance is not evidence about the real one. Name the external constraints the
+mock does not enforce, and cover them somewhere the real shape is checked.
+
+### 2026-09-12 — one valid request killed the backend
+
+**What happened.** `server/index.ts` dispatched from a detached `void (async …)()`
+with no rejection handler. The first catalog request whose fetcher threw became
+an unhandled rejection and terminated the process with no response. Reproduced
+before fixing: `health` went from 200 to dead after a single request.
+
+**Standing rule.** Every detached async boundary needs a terminal handler that
+turns a rejection into a typed reply. A crashed server is the loudest possible
+unexpected state and still tells the caller nothing.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
