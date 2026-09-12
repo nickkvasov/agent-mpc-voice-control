@@ -129,7 +129,7 @@ the player reaches the requested state and the controls agree. Needs no catalog 
 
 - [X] T028 [P] [US1] Contract tests for each `playback.*` tool: schema rejection and every `ok:false` reason, in `tests/contract/playback-tools.test.ts`
 - [X] T029 [P] [US1] Test that voice and text produce identical outcomes for equivalent instructions (FR-001) in `tests/integration/voice-text-parity.test.ts`
-- [ ] T030 [P] [US1] Playwright timing test measuring SC-001 **from end of speech**, not from interpretation, in `tests/e2e/playback-timing.spec.ts`
+- [X] T030 [P] [US1] Playwright timing test measuring SC-001 **from end of speech**, not from interpretation, in `tests/e2e/playback-timing.spec.ts`
 
 ### Implementation for User Story 1
 
@@ -150,6 +150,21 @@ the player reaches the requested state and the controls agree. Needs no catalog 
 - [X] T045 [US1] Write the test asserting the matcher never guesses — a low-confidence utterance routes to the agent — in `tests/integration/matcher-fallthrough.test.ts`
 - [X] T046 [US1] Implement in-flight command cancellation (FR-004) in `src/app/command-cancel.ts`
 - [X] T047 [US1] Implement player control UI reflecting command-driven changes within 1s (FR-013) in `src/player/controls.tsx`
+
+### What T030 does and does not establish
+
+The timing test measures the segment from a command being ISSUED to its result
+being on screen, and asserts it inside a 400ms slice of SC-001's one second. It
+does **not** measure recognition, because on-device recognition cannot be driven
+here: the availability probe kills the renderer in headless Chrome (T008), and
+nothing can synthesise a real on-device transcript. So the test is a budget
+FLOOR — failing it means SC-001 is already lost; passing it does not establish
+SC-001.
+
+**Outstanding**: measuring the recognition segment needs a headed harness with a
+real microphone. That harness does not exist and has no task. It belongs with the
+Polish phase's privacy assertions (T088), which need headed running for the same
+reason.
 
 **Checkpoint**: US1 independently testable and demonstrable.
 
