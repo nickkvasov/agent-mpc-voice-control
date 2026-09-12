@@ -9,7 +9,10 @@ export interface InterpretationProps {
 }
 
 export function Interpretation({ heard, interpretation, outcome }: InterpretationProps) {
-  if (heard === null && interpretation === null) return null;
+  // An outcome alone must still render: someone using only the discovery
+  // controls has no `heard` or `interpretation`, and their search refusals and
+  // quota messages were invisible (Gate C, FR-022).
+  if (heard === null && interpretation === null && outcome === null) return null;
   return (
     <section aria-live="polite" data-testid="interpretation" style={{ border: '1px solid #ccc', padding: '0.5rem', margin: '0.5rem 0' }}>
       {heard !== null && (
@@ -17,9 +20,9 @@ export function Interpretation({ heard, interpretation, outcome }: Interpretatio
           Heard: <q>{heard}</q>
         </div>
       )}
-      <div data-testid="understood">
-        Understood as: {interpretation ?? <em>not understood</em>}
-      </div>
+      {(heard !== null || interpretation !== null) && (
+        <div data-testid="understood">Understood as: {interpretation ?? <em>not understood</em>}</div>
+      )}
       {outcome !== null && <div data-testid="outcome">{outcome}</div>}
     </section>
   );

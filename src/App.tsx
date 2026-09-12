@@ -12,7 +12,7 @@ import { ResultsView } from './catalog/results-view.tsx';
 import { QueueView } from './queue/queue-view.tsx';
 import { EMPTY, narrowLocally, type ResultSet } from './catalog/results.ts';
 import { searchCatalog, type QuotaView } from './catalog/client.ts';
-import { add as queueAdd, remove as queueRemove, EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
+import { add as queueAdd, removeAt, EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
 import { TOOL } from './vocab/tool-names.ts';
 import { pause, play, stop } from './player/tools/transport.ts';
 import { seek } from './player/tools/seek.ts';
@@ -129,21 +129,69 @@ export function App() {
     [run],
   );
 
-  const doSearch = useCallback(async (query: string) => {
-    const r = await searchCatalog({ query });
-    if (!r.ok) {
-      setOutcome(`Refused: ${r.detail}`);
-      return;
-    }
-    setQuota(r.value.quota);
-    setResults({ items: r.value.items, criteria: r.value.criteriaApplied, operation: 'fresh_search', fromCache: r.value.fromCache });
-    setOutcome(`Found ${String(r.value.items.length)}.`);
+  /**
+   * Discovery goes through the same ordering boundary as everything else
+   * (FR-038) and the same recorded boundary (SC-006). Both were bypassed: a
+   * slow search could overwrite a newer one, and no catalog or queue action
+   * left an activity entry at all (Gate C).
+   */
+  const doSearch = useCallback((query: string) => {
+    chain.current?.enqueue(
+      () => Promise.resolve(query),
+      async (q) => {
+        const r = await invokeRecorded(recorder, TOOL.catalogSearch, { query: q }, `Search for "${q}"`, () =>
+          searchCatalog({ query: q }),
+        );
+        if (!r.ok) {
+          setOutcome(`Refused: ${r.detail}`);
+          return;
+        }
+        setQuota(r.value.quota);
+        setResults({
+          items: r.value.items,
+          criteria: r.value.criteriaApplied,
+          operation: 'fresh_search',
+          fromCache: r.value.fromCache,
+          setAsideUnknown: 0,
+        });
+        setOutcome(`Found ${String(r.value.items.length)}.`);
+      },
+    );
   }, []);
 
   const doNarrow = useCallback((maxMinutes: number) => {
-    // Local: spends no allowance (research.md R2).
-    setResults((cur) => narrowLocally(cur, { maxDurationSeconds: maxMinutes * 60 }));
+    chain.current?.enqueue(
+      () => Promise.resolve(String(maxMinutes)),
+      async () => {
+        // Local: spends no allowance (research.md R2).
+        await invokeRecorded(
+          recorder,
+          TOOL.catalogNarrow,
+          { maxDurationSeconds: maxMinutes * 60 },
+          `Narrow to under ${String(maxMinutes)} minutes`,
+          () => {
+            setResults((cur) => narrowLocally(cur, { maxDurationSeconds: maxMinutes * 60 }));
+            return { ok: true as const, value: null };
+          },
+        );
+        setOutcome(`Narrowed to under ${String(maxMinutes)} minutes.`);
+      },
+    );
   }, []);
+
+  const queueAction = useCallback(
+    (label: string, tool: typeof TOOL.queueAdd | typeof TOOL.queueRemove, run: () => ReturnType<typeof queueAdd>) => {
+      chain.current?.enqueue(
+        () => Promise.resolve(label),
+        async () => {
+          const r = await invokeRecorded(recorder, tool, {}, label, run);
+          setOutcome(r.ok ? `${label}.` : `Refused: ${r.detail}`);
+          if (r.ok) setQueue(r.value);
+        },
+      );
+    },
+    [],
+  );
 
   const captions = p.getOption('captions', 'track');
   const track = typeof captions === 'object' && captions !== null
@@ -178,19 +226,11 @@ export function App() {
         results={results}
         quota={quota}
         onPlay={(id) => setOutcome(`Would play ${id} once the player embed lands.`)}
-        onQueue={(id) => {
-          const r = queueAdd(queue, [id]);
-          setOutcome(r.ok ? 'Queued.' : `Refused: ${r.detail}`);
-          if (r.ok) setQueue(r.value);
-        }}
+        onQueue={(id) => queueAction('Queued', TOOL.queueAdd, () => queueAdd(queue, [id]))}
       />
       <QueueView
         queue={queue}
-        onRemove={(id) => {
-          const r = queueRemove(queue, [id]);
-          setOutcome(r.ok ? 'Removed from the queue.' : `Refused: ${r.detail}`);
-          if (r.ok) setQueue(r.value);
-        }}
+        onRemoveAt={(index) => queueAction('Removed from the queue', TOOL.queueRemove, () => removeAt(queue, index))}
       />
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. */}

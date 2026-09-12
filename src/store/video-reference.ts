@@ -27,7 +27,13 @@ export interface VideoReference {
   /** Cached facts owned by YouTube — never edited here. */
   readonly title: string;
   readonly channelTitle: string;
-  readonly durationSeconds: number;
+  /**
+   * Search results carry no duration — it comes from a separate lookup. Until
+   * that lands the duration is UNKNOWN, not zero: defaulting to zero made every
+   * video "0 minutes", so long videos survived "only the short ones" and
+   * "the shortest" resolved to whatever happened to be first (Gate C).
+   */
+  readonly durationSeconds: Known<number>;
   readonly publishedAt: number;
   readonly hasCaptions: Known<boolean>;
   readonly chapters: Known<readonly Chapter[]>;
@@ -51,7 +57,7 @@ export function makeVideoReference(input: {
   videoId: string;
   title: string;
   channelTitle: string;
-  durationSeconds: number;
+  durationSeconds?: Known<number>;
   publishedAt: number;
   hasCaptions?: Known<boolean>;
   chapters?: Known<readonly Chapter[]>;
@@ -63,7 +69,7 @@ export function makeVideoReference(input: {
   if (!VIDEO_ID.test(input.videoId)) {
     throw new InvalidVideoReference(`Not a YouTube video id: ${JSON.stringify(input.videoId)}`);
   }
-  if (input.durationSeconds < 0) {
+  if (typeof input.durationSeconds === 'number' && input.durationSeconds < 0) {
     throw new InvalidVideoReference(`Negative duration for ${input.videoId}`);
   }
   if (input.label !== undefined && input.label !== null && input.label.trim() === '') {
@@ -77,7 +83,7 @@ export function makeVideoReference(input: {
     videoId: input.videoId,
     title: input.title,
     channelTitle: input.channelTitle,
-    durationSeconds: input.durationSeconds,
+    durationSeconds: input.durationSeconds ?? UNKNOWN,
     publishedAt: input.publishedAt,
     hasCaptions: input.hasCaptions ?? UNKNOWN,
     chapters: input.chapters ?? UNKNOWN,

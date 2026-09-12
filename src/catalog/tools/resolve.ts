@@ -1,6 +1,6 @@
 import { REFUSAL_REASON } from '../../vocab/refusal-reasons.ts';
 import { ok, refuse, type ToolResult } from '../../mcp/result.ts';
-import type { VideoReference } from '../../store/video-reference.ts';
+import { isUnknown, type VideoReference } from '../../store/video-reference.ts';
 
 /**
  * Resolves "the third one", "the shortest", "the one about launches".
@@ -28,9 +28,17 @@ export function resolveReference(items: readonly VideoReference[], reference: st
     return refuse(REFUSAL_REASON.ambiguousReference, 'No reference was given.');
   }
 
+  // A number only denotes a POSITION when the phrase says so. "the one about
+  // Apollo 1" used to resolve to result 1, silently playing the wrong video
+  // because any digit anywhere outranked the title (Gate C).
   const ordinalWord = Object.keys(ORDINALS).find((w) => new RegExp(`\\b${w}\\b`).test(r));
-  const numeric = /\b(\d{1,2})(?:st|nd|rd|th)?\b/.exec(r);
-  const index = ordinalWord !== undefined ? ORDINALS[ordinalWord] : numeric !== null ? Number(numeric[1]) : undefined;
+  const positional = /\b(?:number|result|item|#)\s*(\d{1,2})\b|^\s*(\d{1,2})(?:st|nd|rd|th)?\s*$|\bthe\s+(\d{1,2})(?:st|nd|rd|th)\b/.exec(r);
+  const index =
+    ordinalWord !== undefined
+      ? ORDINALS[ordinalWord]
+      : positional !== null
+        ? Number(positional[1] ?? positional[2] ?? positional[3])
+        : undefined;
   if (index !== undefined) {
     const item = index === -1 ? items[items.length - 1] : items[index - 1];
     if (item === undefined) {
@@ -41,9 +49,27 @@ export function resolveReference(items: readonly VideoReference[], reference: st
 
   if (/\bshortest\b/.test(r) || /\blongest\b/.test(r)) {
     const longest = /\blongest\b/.test(r);
-    const sorted = [...items].sort((a, b) => (longest ? b.durationSeconds - a.durationSeconds : a.durationSeconds - b.durationSeconds));
+    // Comparing against an unknown duration would rank by a fact we do not
+    // have. Videos whose length is not established are excluded and counted.
+    const known = items.filter((v) => !isUnknown(v.durationSeconds));
+    const unknownCount = items.length - known.length;
+    if (known.length === 0) {
+      return refuse(
+        REFUSAL_REASON.effectUnverifiable,
+        `No result has an established length yet, so the ${longest ? 'longest' : 'shortest'} cannot be identified.`,
+      );
+    }
+    const dur = (v: VideoReference): number => v.durationSeconds as number;
+    const sorted = [...known].sort((a, b) => (longest ? dur(b) - dur(a) : dur(a) - dur(b)));
     const best = sorted[0] as VideoReference;
-    const tied = sorted.filter((v) => v.durationSeconds === best.durationSeconds);
+    const tied = sorted.filter((v) => dur(v) === dur(best));
+    if (unknownCount > 0 && tied.length === 1) {
+      return ok({
+        videoId: best.videoId,
+        title: best.title,
+        how: `the ${longest ? 'longest' : 'shortest'} of the ${String(known.length)} results whose length is known (${String(unknownCount)} not yet established)`,
+      });
+    }
     if (tied.length > 1) {
       return refuse(
         REFUSAL_REASON.ambiguousReference,

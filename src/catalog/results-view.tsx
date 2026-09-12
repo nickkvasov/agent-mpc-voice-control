@@ -1,5 +1,6 @@
 import type { ResultSet } from './results.ts';
 import { describeCriteria } from './results.ts';
+import { isUnknown } from '../store/video-reference.ts';
 import type { QuotaView } from './client.ts';
 import { QuotaIndicator } from './quota-indicator.tsx';
 
@@ -28,6 +29,12 @@ export function ResultsView({ results, quota, onQueue, onPlay }: ResultsViewProp
       <h2 style={{ fontSize: '1rem' }}>Results</h2>
       <p data-testid="results-operation">{OPERATION_LABEL[results.operation]}{results.fromCache ? ' (from cache, no allowance spent)' : ''}</p>
       <p data-testid="results-criteria">Criteria: {describeCriteria(results.criteria)}</p>
+      {results.setAsideUnknown > 0 && (
+        <p data-testid="results-set-aside">
+          {results.setAsideUnknown} result{results.setAsideUnknown === 1 ? '' : 's'} set aside: their length is not yet
+          known, so a length filter cannot be applied to them.
+        </p>
+      )}
       <QuotaIndicator quota={quota} />
       {results.items.length === 0 ? (
         <p data-testid="results-empty">
@@ -37,7 +44,10 @@ export function ResultsView({ results, quota, onQueue, onPlay }: ResultsViewProp
         <ol data-testid="results-list">
           {results.items.map((v) => (
             <li key={v.videoId} data-testid="result-item">
-              {v.title} <small>({Math.round(v.durationSeconds / 60)} min)</small>{' '}
+              {v.title}{' '}
+              <small>
+                ({isUnknown(v.durationSeconds) ? 'length not yet known' : `${String(Math.round((v.durationSeconds as number) / 60))} min`})
+              </small>{' '}
               <button type="button" onClick={() => onPlay(v.videoId)}>Play</button>{' '}
               <button type="button" onClick={() => onQueue(v.videoId)}>Queue</button>
             </li>

@@ -15,30 +15,63 @@ export interface QueueState {
 
 export const EMPTY_QUEUE: QueueState = { items: [], currentVideoId: null };
 
-export function add(q: QueueState, videoIds: readonly string[], position: 'next' | 'end' = 'end'): ToolResult<QueueState> {
+export function add(
+  q: QueueState,
+  videoIds: readonly string[],
+  position: 'next' | 'end' = 'end',
+  confirmedCount?: number,
+): ToolResult<QueueState> {
   if (videoIds.length === 0) {
     return refuse(REFUSAL_REASON.argumentsInvalid, 'No videos were given to queue.');
   }
-  if (videoIds.length > BULK_THRESHOLD) {
+  // A gate, not a prohibition: without this path a bulk add could never
+  // succeed however clearly the person confirmed it (Gate C).
+  if (videoIds.length > BULK_THRESHOLD && confirmedCount !== videoIds.length) {
     return refuse(
       REFUSAL_REASON.needsConfirmation,
-      `That would add ${String(videoIds.length)} videos to the queue. Confirm the count to go ahead.`,
+      `That would add ${String(videoIds.length)} videos to the queue. Confirm that count to go ahead.`,
     );
   }
   const items = position === 'next' ? [...videoIds, ...q.items] : [...q.items, ...videoIds];
   return ok({ ...q, items });
 }
 
-export function remove(q: QueueState, videoIds: readonly string[]): ToolResult<QueueState> {
-  const present = videoIds.filter((id) => q.items.includes(id));
-  if (present.length === 0) {
+export function remove(q: QueueState, videoIds: readonly string[], confirmedCount?: number): ToolResult<QueueState> {
+  const affected = q.items.filter((id) => videoIds.includes(id)).length;
+  if (affected === 0) {
     return refuse(
       REFUSAL_REASON.noSuchVideo,
       videoIds.length === 1 ? 'That video is not in the queue.' : 'None of those videos are in the queue.',
     );
   }
-  const drop = new Set(present);
+  // Removing many is as destructive as clearing, and was not gated at all.
+  if (affected > BULK_THRESHOLD && confirmedCount !== affected) {
+    return refuse(
+      REFUSAL_REASON.needsConfirmation,
+      `That would remove ${String(affected)} entries from the queue. Confirm that count to go ahead.`,
+    );
+  }
+  const drop = new Set(videoIds);
   return ok({ ...q, items: q.items.filter((id) => !drop.has(id)) });
+}
+
+/**
+ * Removes ONE scheduled play, by position.
+ *
+ * A queue may legitimately hold the same video twice, and each row has its own
+ * Remove button — removing by id took both, cancelling a play the person had
+ * not asked to cancel (Gate C).
+ */
+export function removeAt(q: QueueState, index: number): ToolResult<QueueState> {
+  if (!Number.isInteger(index) || index < 0 || index >= q.items.length) {
+    return refuse(
+      REFUSAL_REASON.argumentsInvalid,
+      `Position ${String(index)} is outside the queue, which holds ${String(q.items.length)}.`,
+    );
+  }
+  const items = [...q.items];
+  items.splice(index, 1);
+  return ok({ ...q, items });
 }
 
 export function reorder(q: QueueState, videoId: string, toIndex: number): ToolResult<QueueState> {

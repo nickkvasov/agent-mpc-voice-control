@@ -93,6 +93,26 @@ warning about an assertion that cannot fail.
 just the routing. A test that checks which handler was chosen has not tested
 what it was chosen to do.
 
+### 2026-09-12 — a Gate B fixture hid the integration it stood in for
+
+**What happened.** The US2 live run stubbed `/api/catalog/search` with a
+Playwright route fixture so the UI path could be exercised without a YouTube
+key. It passed, and looked like a thorough live run: search, narrow, queue, zero
+network calls during narrowing, criteria and quota all displayed.
+
+It could not have found what was actually broken. Vite had no `/api` proxy, so
+the real Search button was fetching from the dev server and receiving **the
+SPA's own HTML** — a 200 response that is not a catalog result. Gate C found it
+by reading the config. Re-running the same flow with the stub removed showed it
+in one line.
+
+**Standing rule.** A fixture that stands in for the integration under test
+cannot test it. When a live run stubs a boundary, say so in the report, and run
+the same flow at least once with the stub removed — even if the far side is
+expected to fail, because *how* it fails is the evidence. Here the unstubbed run
+returned a JSON 500 with a stated reason, which is exactly right for a
+deployment with no key, and is a different fact from HTML.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

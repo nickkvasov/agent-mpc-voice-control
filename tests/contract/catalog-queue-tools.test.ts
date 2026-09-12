@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { narrowLocally, describeCriteria, EMPTY, type ResultSet } from '../../src/catalog/results.ts';
 import { resolveReference } from '../../src/catalog/tools/resolve.ts';
-import { add, clear, remove, reorder, EMPTY_QUEUE } from '../../src/queue/queue.ts';
+import { add, clear, remove, removeAt, reorder, EMPTY_QUEUE } from '../../src/queue/queue.ts';
 import { makeVideoReference } from '../../src/store/video-reference.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 import { SearchBudget, DAILY_WORKING_CAP, BURST, REPLENISH_MS } from '../../server/catalog-proxy/budget.ts';
@@ -137,5 +137,74 @@ describe('search budget', () => {
     const r = b.request(now);
     expect(r.allowed).toBe(false);
     if (!r.allowed) expect(r.reason).toBe('daily_cap');
+  });
+});
+
+describe('Gate C round 1 regressions', () => {
+  const withDur = (id: string, title: string, dur: number) =>
+    makeVideoReference({ videoId: id, title, channelTitle: 'c', durationSeconds: dur, publishedAt: 0 });
+  const noDur = (id: string, title: string) =>
+    makeVideoReference({ videoId: id, title, channelTitle: 'c', publishedAt: 0 });
+
+  it('a duration is unknown until fetched, never zero', () => {
+    expect(noDur('aaaaaaaaaaa', 't').durationSeconds).toBe('unknown');
+  });
+
+  it('sets aside unknown-duration items instead of silently keeping or dropping them', () => {
+    const set = results(withDur('aaaaaaaaaaa', 'short', 120), noDur('bbbbbbbbbbb', 'mystery'));
+    const r = narrowLocally(set, { maxDurationSeconds: 600 });
+    expect(r.items.map((v) => v.videoId)).toEqual(['aaaaaaaaaaa']);
+    expect(r.setAsideUnknown).toBe(1);
+  });
+
+  it('keeps the tighter bound when a looser one is supplied', () => {
+    const set = results(withDur('aaaaaaaaaaa', 'a', 120), withDur('bbbbbbbbbbb', 'b', 3600));
+    const tight = narrowLocally(set, { maxDurationSeconds: 600 });
+    const loosened = narrowLocally(tight, { maxDurationSeconds: 1200 });
+    // The displayed criterion must still describe the set that is shown.
+    expect(loosened.criteria.maxDurationSeconds).toBe(600);
+  });
+
+  it('does not treat a number inside a title as a position', () => {
+    const items = [withDur('aaaaaaaaaaa', 'Unrelated talk', 100), withDur('bbbbbbbbbbb', 'Apollo 1', 200)];
+    const r = resolveReference(items, 'the one about Apollo 1');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.videoId).toBe('bbbbbbbbbbb');
+  });
+
+  it('still resolves an explicit position', () => {
+    const items = [withDur('aaaaaaaaaaa', 'a', 100), withDur('bbbbbbbbbbb', 'b', 200)];
+    for (const phrase of ['the second one', 'number 2', '2']) {
+      const r = resolveReference(items, phrase);
+      expect(r.ok, phrase).toBe(true);
+      if (r.ok) expect(r.value.videoId, phrase).toBe('bbbbbbbbbbb');
+    }
+  });
+
+  it('refuses "the shortest" when no length is established', () => {
+    const r = resolveReference([noDur('aaaaaaaaaaa', 'a')], 'the shortest');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.detail).toMatch(/established length/i);
+  });
+
+  it('removes one occurrence of a repeated video, not both', () => {
+    const q = { items: ['A', 'B', 'A'], currentVideoId: null };
+    const r = removeAt(q, 0);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.items).toEqual(['B', 'A']);
+  });
+
+  it('gates a bulk removal and then allows it once the count is confirmed', () => {
+    const q = { items: ['1', '2', '3', '4', '5', '6'], currentVideoId: null };
+    expect(remove(q, q.items).ok).toBe(false);
+    expect(remove(q, q.items, 6).ok).toBe(true);
+  });
+
+  it('allows a bulk add once the count is confirmed, rather than forbidding it forever', () => {
+    const ids = ['1', '2', '3', '4', '5', '6'];
+    expect(add(EMPTY_QUEUE, ids).ok).toBe(false);
+    const r = add(EMPTY_QUEUE, ids, 'end', 6);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.items).toHaveLength(6);
   });
 });
