@@ -1,0 +1,24 @@
+<!doctype html>
+<html><body><div id="player"></div>
+<script>
+window.spikeResult = { stage: 'loading-api' };
+let player;
+function onYouTubeIframeAPIReady() {
+  window.spikeResult.stage = 'api-ready';
+  player = new YT.Player('player', {
+    height: '360', width: '640',
+    videoId: 'M7lc1UVf-VE',
+    playerVars: { cc_load_policy: 1 },
+    events: {
+      onReady: (e) => { window.spikeResult.stage = 'player-ready'; e.target.playVideo(); },
+      onStateChange: (e) => { window.spikeResult.lastState = e.data; },
+      onError: (e) => { window.spikeResult.error = e.data; },
+      onApiChange: () => { window.spikeResult.apiChangeFired = true; },
+    },
+  });
+  window.player = player;
+}
+const tag = document.createElement('script');
+tag.src = 'https://www.youtube.com/iframe_api';
+document.head.appendChild(tag);
+</script></body></html>

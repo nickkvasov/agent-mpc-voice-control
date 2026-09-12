@@ -34,8 +34,8 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 - [X] T001 Scaffold Vite + React 19 + TypeScript project (ESM only, Node ≥22) in `package.json`, `vite.config.ts`, `tsconfig.json`
 - [X] T002 [P] Configure Vitest for unit and contract tests in `vite.config.ts` (colocated with the Vite config so the include globs have one owner, per IMMUNE-N)
 - [X] T003 [P] Configure Playwright against installed chromium in `playwright.config.ts`
-- [ ] T004 [P] Scaffold backend server (Node ≥22, ESM) in `server/index.ts` and `server/tsconfig.json`
-- [ ] T005 [P] Add `.env.example` documenting `YOUTUBE_API_KEY` and `ANTHROPIC_API_KEY` as **server-only** variables in `.env.example`
+- [X] T004 [P] Scaffold backend server (Node ≥22, ESM) in `server/index.ts` and `server/tsconfig.json`
+- [X] T005 [P] Add `.env.example` documenting `YOUTUBE_API_KEY` and `ANTHROPIC_API_KEY` as **server-only** variables in `.env.example`
 - [X] T006 **Fill the gate commands** — `fast`, `final`, `live` are UNCONFIGURED, so `kaliper:phased-implement` will report every gate NOT RUN until this is done — in `.claude/kaliper/phased-implement/gates.json`
 
 ---
@@ -46,8 +46,8 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 
 ### Spikes — sequence first, they can invalidate estimates rather than merely delay them
 
-- [ ] T007 **Captions spike (R4)**: determine whether the IFrame API can enable a caption track and enumerate tracks at all; record the finding and its consequence for FR-010 in `specs/001-voice-video-control/research.md`
-- [ ] T008 [P] **On-device recognition spike (R1)**: measure real availability of `SpeechRecognition.available({processLocally:true})` across target browsers; if too narrow, record the Whisper/WebGPU fallback as a work item in `specs/001-voice-video-control/research.md`
+- [X] T007 **Captions spike (R4)**: determine whether the IFrame API can enable a caption track and enumerate tracks at all; record the finding and its consequence for FR-010 in `specs/001-voice-video-control/research.md`
+- [X] T008 [P] **On-device recognition spike (R1)**: measure real availability of `SpeechRecognition.available({processLocally:true})` across target browsers; if too narrow, record the Whisper/WebGPU fallback as a work item in `specs/001-voice-video-control/research.md`
 
 ### Named vocabularies (Constitution: closed sets are one exported dictionary)
 

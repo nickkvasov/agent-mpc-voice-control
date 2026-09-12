@@ -23,6 +23,30 @@ rather than drifting to the next free port) and `reuseExistingServer: false`.
 **Standing readiness rule.** Before trusting a live run, confirm the server under test is *this*
 project's. A responding port is not identity.
 
+### 2026-09-12 — the on-device speech probe crashes headless Chrome
+
+**What happened.** `SpeechRecognition.available({processLocally:true})` kills the renderer in
+headless Chrome for Testing 153. Headed chromium and system Chrome both answer `"downloadable"`.
+
+**Why it matters for the gates.** Any e2e coverage that touches voice cannot run headless. A suite
+that skips the probe because headless crashed, and reports green on the rest, would be reporting a
+pass on the one capability the feature is named after. When voice tests land, they need a headed
+project in `playwright.config.ts`, and the absence of headed coverage must be visible rather than
+silent.
+
+**Standing rule.** The startup probe must survive the call crashing, not merely returning false. A
+refusal path that takes the tab down with it is not a refusal path.
+
+### 2026-09-12 — a `file://` origin makes YouTube look broken
+
+**What happened.** The captions spike loaded over `file://` and got player error **153** with no
+caption data, which reads exactly like "this video has no captions". Error 153 is a missing HTTP
+Referer: the IFrame API requires a real origin.
+
+**Standing rule.** Before concluding a video lacks a capability, confirm the player was served over
+http(s). Diagnosing 153 as a content problem would have sent the captions work down the wrong path
+entirely — the spike nearly concluded the API could not do something it does.
+
 ## Decisions that go to codex
 
 Nothing recorded yet. Add entries as under-determined decisions arise — two defensible readings of

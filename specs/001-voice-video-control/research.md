@@ -33,6 +33,40 @@ at runtime and never assumed.
 **Consequence for the plan**: voice is a *conditional* capability. The startup probe and its refusal
 path are first-class work, not error handling bolted on later.
 
+### R1 — MEASURED 2026-09-12 (T008)
+
+Probed in real browsers via `spikes/t008-recognition-probe.mjs`, against Chrome for Testing
+153.0.8010.12 and system Chrome on a secure context.
+
+| Check | Result |
+|---|---|
+| `SpeechRecognition` / `webkitSpeechRecognition` | both present |
+| `processLocally` on the prototype | **yes** |
+| `SpeechRecognition.available` / `.install` statics | **both present** |
+| `available({langs:['en-US'], processLocally:true})` — headed chromium | **`"downloadable"`** |
+| `available(...)` — system Chrome | **`"downloadable"`** |
+| `available(...)` — **headless** chromium | **crashes the renderer** |
+
+**Two findings, both consequential.**
+
+1. **On-device recognition is real, but not ready on first run.** `"downloadable"` is a third state
+   that is neither available nor unavailable: the language pack must be fetched via
+   `SpeechRecognition.install()` before voice can work. The plan assumed a binary probe. It is
+   ternary — `unavailable` / `downloadable` / `available` — and the interface must be able to say
+   "voice is preparing" rather than silently refusing or silently waiting. This is Constitution IV
+   (unknown is a value) appearing in a place the design did not anticipate.
+
+2. **The probe crashes headless Chrome.** Not a rejected promise — the renderer dies. Any e2e test
+   touching voice must run headed, and the startup probe must survive a crashed call rather than
+   assume it returns. A refusal path that itself takes down the tab is not a refusal path.
+
+**Whisper/WebGPU fallback**: not needed for capability reasons — the API is genuinely present. It
+remains the answer only if the install download proves unacceptable in practice.
+
+**Not yet measured**: what `install()` actually costs (download size and time). Deliberately not run
+here — this machine's network could not reach the npm registry for 25 minutes today, so a large
+download would have measured the network rather than the feature.
+
 ---
 
 ## R2. YouTube search quota — 100 calls per day, for the whole application
@@ -121,6 +155,41 @@ FR-013 must keep in sync.
 **Alternatives considered**: a custom HTML5 player over raw streams — rejected, it violates YouTube's
 terms, which the spec names as a governing dependency.
 
+### R4 — MEASURED 2026-09-12 (T007)
+
+Probed against a real YouTube player via `spikes/t007-captions.mjs`, served over http (a `file://`
+origin returns player error **153, missing HTTP Referer** — the IFrame API requires a real origin,
+which is itself worth knowing before someone debugs it as a caption problem).
+
+| Operation | Result |
+|---|---|
+| `loadModule('captions')` | works |
+| `getOption('captions','tracklist')` | **returns the full track list** — `languageCode`, `languageName`, `displayName`, `is_translateable`, `vss_id` |
+| `getOption('captions','track')` | returns the active track |
+| `setOption('captions','track',{languageCode:'en'})` | **works**, and reads back correctly |
+| `setOption('captions','track',{})` | readback still reports `en` |
+| `unloadModule('captions')` | readback still reports `en` |
+
+**The risk is half resolved, and the remaining half is the opposite of what was expected.**
+
+- **Enabling, enumerating and selecting a caption track all work**, despite being absent from the
+  public reference. FR-010's main clause is achievable, and R4's "single biggest implementation risk"
+  is retired. The acceptance scenario about saying captions are unavailable becomes the exception
+  again rather than the likely path.
+- **Turning captions off is not verifiable through the same readback.** Neither candidate produced an
+  observable change. It may be that `getOption('captions','track')` reports the *selected* track
+  rather than whether captions are *rendered*, in which case captions may genuinely be off while the
+  readback is simply the wrong observable — and the rendered caption DOM is inside a cross-origin
+  iframe, so it cannot be inspected to settle it.
+
+**Consequence for FR-010 and for T037.** `playback.setCaptions({enabled:true, track})` can report
+success honestly because it reads back. `{enabled:false}` cannot, and under Constitution III a call
+that cannot verify its effect must not claim one. Until a reliable observable is found, the disable
+path must return a result that states the uncertainty rather than a bare success.
+
+**Standing risk**: this surface is undocumented, so it can change without notice. The readback in
+T032 is what would catch that, rather than a silent regression to captions that never turn on.
+
 ---
 
 ## R5. Agent runtime and model
@@ -143,10 +212,10 @@ foundation's own design expects the page to connect outward to a gateway.
 
 | Unknown | Resolution |
 |---|---|
-| Speech recognition location | Web Speech API with `processLocally: true`, probed at startup; voice refused if unavailable (R1) |
+| Speech recognition location | Web Speech API with `processLocally: true`; **measured** — present but `"downloadable"`, probe crashes headless (R1/T008) |
 | Catalog access & quota | Backend proxy, aggressive caching, local narrowing; 100 searches/day app-wide (R2) |
 | Meeting the 1s budget | Local matcher for closed playback vocabulary; agent for everything else (R3) |
-| Player control surface | IFrame Player API; captions need a spike (R4) |
+| Player control surface | IFrame Player API; captions **measured** — enable/enumerate/select work, disable unverifiable (R4/T007) |
 | Agent runtime | Server-side Claude API (`claude-opus-5`), streaming, key never in browser (R5) |
 
 **No `NEEDS CLARIFICATION` markers remain.**
