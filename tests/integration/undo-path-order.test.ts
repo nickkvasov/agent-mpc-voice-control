@@ -111,3 +111,50 @@ describe('Gate C round 5: keys survive reorder and never collide', () => {
     expect(ids(back)).toEqual(['C', 'B', 'A']);
   });
 });
+
+describe('Gate C round 6: reorder edge cases', () => {
+  it('moving an entry to where it already is changes nothing', () => {
+    __resetQueueIds();
+    const built = add(EMPTY_QUEUE, ['A', 'B', 'C']);
+    if (!built.ok) return;
+    const bId = built.value.items[1]?.entryId as string;
+    const before = built.value.items.map((e) => e.order);
+    const r = reorder(built.value, bId, 1);
+    expect(r.ok).toBe(true);
+    // Crucially the KEYS are untouched, or a later undo lands differently.
+    if (r.ok) expect(r.value.items.map((e) => e.order)).toEqual(before);
+  });
+
+  it('a no-op reorder does not change where a later undo restores', () => {
+    __resetQueueIds();
+    const built = add(EMPTY_QUEUE, ['A', 'B', 'C']);
+    if (!built.ok) return;
+    const a = built.value.items[0];
+    const withoutA = removeEntries(built.value, [a?.entryId as string]);
+    if (!withoutA.ok) return;
+    const bId = withoutA.value.items[0]?.entryId as string;
+    const noop = reorder(withoutA.value, bId, 0);
+    if (!noop.ok) return;
+    const restored = applyQueueUndo(noop.value, {
+      kind: 'queue_occurrence', entryId: a?.entryId as string, videoId: 'A', added: false, order: a?.order as number,
+    }) as QueueState;
+    expect(ids(restored)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('refuses rather than guessing when two neighbours share a position', () => {
+    __resetQueueIds();
+    const tied: QueueState = {
+      items: [
+        { entryId: 'q1', videoId: 'A', order: 1 },
+        { entryId: 'q2', videoId: 'B', order: 2 },
+        { entryId: 'q3', videoId: 'D', order: 2 },
+      ],
+      currentVideoId: null,
+    };
+    // Between the two entries that share key 2 — the position with no value
+    // available between its neighbours.
+    const r = reorder(tied, 'q1', 1);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.detail).toMatch(/share a position/);
+  });
+});

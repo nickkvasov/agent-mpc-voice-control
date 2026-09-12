@@ -162,11 +162,26 @@ export function reorder(q: QueueState, entryId: string, toIndex: number): ToolRe
       `Position ${String(toIndex)} is outside the queue, which holds ${String(q.items.length)}.`,
     );
   }
+  // Moving something to where it already is must change nothing. Allocating a
+  // fresh key anyway altered the outcome of a LATER undo, so a no-op quietly
+  // had an effect (Gate C).
+  if (from === toIndex) return ok(q);
+
   // The key must move with it. Splicing the array alone was silently undone by
   // the next sort, so an explicit reorder simply vanished (Gate C).
   const without = q.items.filter((e) => e.entryId !== entryId);
   const before = toIndex > 0 ? without[toIndex - 1] : undefined;
   const after = without[toIndex];
+  // Two neighbours holding the same key leave no value between them, so a
+  // midpoint would equal both and the tie-break would decide the order instead
+  // of the request. Refused with a reason rather than applied wrongly
+  // (Constitution III).
+  if (before !== undefined && after !== undefined && before.order === after.order) {
+    return refuse(
+      REFUSAL_REASON.effectUnverifiable,
+      'Two queue entries share a position, so there is no place to put this one between them. Remove or re-add one of them first.',
+    );
+  }
   const order =
     before === undefined && after === undefined
       ? (q.items[from] as QueueEntry).order
@@ -175,6 +190,12 @@ export function reorder(q: QueueState, entryId: string, toIndex: number): ToolRe
         : after === undefined
           ? newEntry('', undefined).order
           : (before.order + after.order) / 2;
+  if (before !== undefined && after !== undefined && (order === before.order || order === after.order)) {
+    return refuse(
+      REFUSAL_REASON.effectUnverifiable,
+      'The queue positions are too close together to place this entry between them precisely.',
+    );
+  }
   const moved: QueueEntry = { ...(q.items[from] as QueueEntry), order };
   return ok({ ...q, items: sorted([...without, moved]) });
 }
