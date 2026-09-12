@@ -65,6 +65,16 @@ export function App() {
   player.current ??= createLocalPlayer(bump);
   const p = player.current;
 
+  /**
+   * Commands are applied strictly in the order they were ISSUED (FR-038).
+   *
+   * A spoken command's transcript resolves after the person has let go, so
+   * without this chain a click made during that gap would be applied first and
+   * then overridden by the older utterance. The chain reserves each command's
+   * place at the moment it was issued.
+   */
+  const chain = useRef<Promise<void>>(Promise.resolve());
+
   const [heard, setHeard] = useState<string | null>(null);
   const [interpretation, setInterpretation] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -105,6 +115,17 @@ export function App() {
     [p, bump],
   );
 
+  const enqueue = useCallback(
+    (resolveText: () => Promise<string>) => {
+      chain.current = chain.current.then(async () => {
+        const text = await resolveText();
+        if (text.trim() === '') return;
+        await run(text);
+      });
+    },
+    [run],
+  );
+
   const captions = p.getOption('captions', 'track');
   const track = typeof captions === 'object' && captions !== null
     ? String((captions as Record<string, unknown>)['languageCode'] ?? '')
@@ -113,8 +134,8 @@ export function App() {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
       <h1>Voice Video Control</h1>
-      <PushToTalk onUtterance={(t) => void run(t)} />
-      <CommandInput onCommand={(t) => void run(t)} />
+      <PushToTalk onUtterance={(pending) => enqueue(() => pending)} />
+      <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t))} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. */}
@@ -126,7 +147,7 @@ export function App() {
         volume={p.getVolume()}
         muted={p.isMuted()}
         captionsTrack={track === '' ? null : track}
-        onCommand={(t) => void run(t)}
+        onCommand={(t) => enqueue(() => Promise.resolve(t))}
       />
     </main>
   );

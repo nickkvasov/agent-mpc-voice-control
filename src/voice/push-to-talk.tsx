@@ -20,7 +20,16 @@ import {
  * prompt on load.
  */
 export interface PushToTalkProps {
-  readonly onUtterance: (text: string) => void;
+  /**
+   * Called at RELEASE with a promise of the transcript, not with the text.
+   *
+   * The final transcript arrives after `stop()`, so handing over the text would
+   * place the command in the queue whenever recognition happened to finish —
+   * letting a later click overtake an earlier utterance. Handing over the
+   * promise reserves the command's position the moment the person let go
+   * (FR-038).
+   */
+  readonly onUtterance: (pending: Promise<string>) => void;
 }
 
 type Phase = 'unprobed' | 'probing' | VoiceAvailability | 'installing';
@@ -59,6 +68,11 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
     if (availability !== 'available') return;
     const started = startOnDeviceRecognition(globalThis, {
       onError: (detail) => {
+        // Only the recogniser that still owns the session may clear it. A
+        // delayed error from a previous hold used to null out the CURRENT
+        // session handle, so releasing the new hold found nothing to stop and
+        // left that microphone running invisibly (Gate C).
+        if (thisHold !== holdId.current) return;
         setDetail(detail);
         setCapturing(false);
         session.current = null;
@@ -84,11 +98,9 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
     const s = session.current;
     session.current = null;
     if (s === null) return;
-    // The final transcript arrives after stop(); waiting for it is what makes a
-    // prompt release usable at all.
-    void s.stop().then((text) => {
-      if (text.trim() !== '') onUtterance(text);
-    });
+    // Hand over the PROMISE, not the text: the caller reserves this command's
+    // place in the queue now, and fills it when recognition finishes.
+    onUtterance(s.stop());
   }, [onUtterance]);
 
   return (
