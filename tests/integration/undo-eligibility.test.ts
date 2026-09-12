@@ -45,8 +45,8 @@ describe('undo eligibility', () => {
   });
 
   it('case 5: queue X then clear the queue — blocked', () => {
-    const queued = entry(1, { kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', index: 0, afterEntryId: null, beforeEntryId: null });
-    const cleared = entry(2, { kind: 'queue_occurrence', entryId: 'q1', added: false, videoId: 'X', index: 0, afterEntryId: null, beforeEntryId: null });
+    const queued = entry(1, { kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', order: 1 });
+    const cleared = entry(2, { kind: 'queue_occurrence', entryId: 'q1', added: false, videoId: 'X', order: 1 });
     expect(eligibility(queued, [cleared]).state).toBe('superseded');
   });
 

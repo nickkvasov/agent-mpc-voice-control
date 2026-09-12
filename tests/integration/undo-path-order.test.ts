@@ -1,69 +1,65 @@
 import { describe, expect, it } from 'vitest';
-import { applyQueueUndo, restorePosition } from '../../src/queue/restore.ts';
+import { applyQueueUndo } from '../../src/queue/restore.ts';
 import type { Effect } from '../../src/activity/effects.ts';
 import type { QueueState } from '../../src/queue/queue.ts';
 
 /**
  * Drives the function the Undo handler actually calls.
  *
- * Two rounds of Gate C were spent on this: the fix was written, exported as a
- * helper and unit-tested while `undoAction` kept using the stale index, so the
- * application behaved exactly as before and the suite stayed green. The logic is
- * now a module function that App calls in one line, so breaking it turns these
- * red — which was verified by breaking it.
+ * Two Gate C rounds were spent on a fix that was written, exported, tested and
+ * never invoked; the logic is a module function now so breaking it turns these
+ * red (verified). Restoration is by stable sort key, so the outcome does not
+ * depend on the order the undos happen in — which is what every anchor scheme
+ * got wrong.
  */
-const q = (...pairs: [string, string][]): QueueState => ({
-  items: pairs.map(([entryId, videoId]) => ({ entryId, videoId })),
+const q = (...t: [string, string, number][]): QueueState => ({
+  items: t.map(([entryId, videoId, order]) => ({ entryId, videoId, order })),
   currentVideoId: null,
 });
 
-const removal = (
-  entryId: string, videoId: string, index: number,
-  afterEntryId: string | null, beforeEntryId: string | null,
-): Effect => ({ kind: 'queue_occurrence', entryId, videoId, added: false, index, afterEntryId, beforeEntryId });
+const removal = (entryId: string, videoId: string, order: number): Effect =>
+  ({ kind: 'queue_occurrence', entryId, videoId, added: false, order });
+const addition = (entryId: string, videoId: string, order: number): Effect =>
+  ({ kind: 'queue_occurrence', entryId, videoId, added: true, order });
 
-const addition = (entryId: string, videoId: string): Effect =>
-  ({ kind: 'queue_occurrence', entryId, videoId, added: true, index: 0, afterEntryId: null, beforeEntryId: null });
+const ids = (s: QueueState) => s.items.map((i) => i.videoId);
 
 describe('applyQueueUndo', () => {
-  it('rebuilds [A,B,C] after removing B then A and undoing B then A', () => {
-    let state = q(['q3', 'C']);
-    state = applyQueueUndo(state, removal('q2', 'B', 1, 'q1', 'q3')) as QueueState;
-    state = applyQueueUndo(state, removal('q1', 'A', 0, null, 'q3')) as QueueState;
-    expect(state.items.map((i) => i.videoId)).toEqual(['A', 'B', 'C']);
+  it('rebuilds [A,B,C,D] after removing C, D, A and undoing in the SAME order', () => {
+    // The case Gate C found: C and D shared a predecessor, so anchor-based
+    // restoration produced [A,B,D,C].
+    let s = q(['q2', 'B', 2]);
+    s = applyQueueUndo(s, removal('q3', 'C', 3)) as QueueState;
+    s = applyQueueUndo(s, removal('q4', 'D', 4)) as QueueState;
+    s = applyQueueUndo(s, removal('q1', 'A', 1)) as QueueState;
+    expect(ids(s)).toEqual(['A', 'B', 'C', 'D']);
   });
 
-  it('restores a middle entry between its surviving neighbours', () => {
-    const state = applyQueueUndo(q(['q1', 'A'], ['q3', 'C']), removal('q2', 'B', 1, 'q1', 'q3')) as QueueState;
-    expect(state.items.map((i) => i.videoId)).toEqual(['A', 'B', 'C']);
+  it('rebuilds it in reverse undo order too', () => {
+    let s = q(['q2', 'B', 2]);
+    s = applyQueueUndo(s, removal('q1', 'A', 1)) as QueueState;
+    s = applyQueueUndo(s, removal('q4', 'D', 4)) as QueueState;
+    s = applyQueueUndo(s, removal('q3', 'C', 3)) as QueueState;
+    expect(ids(s)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('restores a middle entry between its neighbours', () => {
+    const s = applyQueueUndo(q(['q1', 'A', 1], ['q3', 'C', 3]), removal('q2', 'B', 2)) as QueueState;
+    expect(ids(s)).toEqual(['A', 'B', 'C']);
   });
 
   it('restores a first entry to the front', () => {
-    const state = applyQueueUndo(q(['q2', 'B']), removal('q1', 'A', 0, null, 'q2')) as QueueState;
-    expect(state.items.map((i) => i.videoId)).toEqual(['A', 'B']);
-  });
-
-  it('falls back to the saved index when both anchors are gone', () => {
-    const state = applyQueueUndo(q(['q1', 'A']), removal('q3', 'C', 2, 'q2', null)) as QueueState;
-    expect(state.items.map((i) => i.videoId)).toEqual(['A', 'C']);
+    const s = applyQueueUndo(q(['q2', 'B', 2]), removal('q1', 'A', 1)) as QueueState;
+    expect(ids(s)).toEqual(['A', 'B']);
   });
 
   it('undoes an addition by removing that occurrence', () => {
-    const state = applyQueueUndo(q(['q1', 'A'], ['q2', 'B']), addition('q1', 'A')) as QueueState;
-    expect(state.items.map((i) => i.videoId)).toEqual(['B']);
+    const s = applyQueueUndo(q(['q1', 'A', 1], ['q2', 'B', 2]), addition('q1', 'A', 1)) as QueueState;
+    expect(ids(s)).toEqual(['B']);
   });
 
   it('returns null when nothing changed, so the caller refuses instead of claiming success', () => {
-    // Already restored.
-    expect(applyQueueUndo(q(['q2', 'B']), removal('q2', 'B', 0, null, null))).toBeNull();
-    // Already gone.
-    expect(applyQueueUndo(q(['q1', 'A']), addition('q9', 'Z'))).toBeNull();
-  });
-
-  it('restorePosition prefers the leading anchor, then the trailing one', () => {
-    const items = [{ entryId: 'q1', videoId: 'A' }, { entryId: 'q3', videoId: 'C' }];
-    expect(restorePosition(items, { afterEntryId: 'q1', beforeEntryId: 'q3', index: 99 })).toBe(1);
-    expect(restorePosition(items, { afterEntryId: 'gone', beforeEntryId: 'q3', index: 99 })).toBe(1);
-    expect(restorePosition(items, { afterEntryId: 'gone', beforeEntryId: 'gone', index: 1 })).toBe(1);
+    expect(applyQueueUndo(q(['q2', 'B', 2]), removal('q2', 'B', 2))).toBeNull();
+    expect(applyQueueUndo(q(['q1', 'A', 1]), addition('q9', 'Z', 9))).toBeNull();
   });
 });

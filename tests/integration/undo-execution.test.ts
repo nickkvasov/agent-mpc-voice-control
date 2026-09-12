@@ -62,7 +62,7 @@ describe('undo execution', () => {
     expect(invert(addX)).toMatchObject({ added: false });
     expect(invert({ kind: 'collection_name', collectionId: 'C', from: 'C', to: 'D' })).toMatchObject({ from: 'D', to: 'C' });
     expect(invert({ kind: 'label', videoId: 'X', from: null, to: 'Q3' })).toMatchObject({ from: 'Q3', to: null });
-    expect(invert({ kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', index: 0, afterEntryId: null, beforeEntryId: null })).toMatchObject({ added: false });
+    expect(invert({ kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', order: 1 })).toMatchObject({ added: false });
   });
 });
 
@@ -98,11 +98,13 @@ describe('answering from the record (FR-033)', () => {
 });
 
 describe('Gate C regressions', () => {
-  const qEffect = (added: boolean): Effect => ({ kind: 'queue_occurrence', entryId: 'q1', added, videoId: 'X', index: 1, afterEntryId: 'q0', beforeEntryId: null });
+  const qEffect = (added: boolean): Effect => ({ kind: 'queue_occurrence', entryId: 'q1', added, videoId: 'X', order: 7 });
 
-  it('a removal carries enough to put the entry back', () => {
+  it('a removal carries enough to put the entry back where it was', () => {
     const inv = invert(qEffect(false));
-    expect(inv).toMatchObject({ added: true, videoId: 'X', index: 1 });
+    // The sort key, not a position: restoration must not depend on what else
+    // has been restored first.
+    expect(inv).toMatchObject({ added: true, videoId: 'X', order: 7 });
   });
 
   it('names the blocking entry, not just "a later action"', () => {

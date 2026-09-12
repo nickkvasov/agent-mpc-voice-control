@@ -18,6 +18,17 @@ import { BULK_THRESHOLD } from '../vocab/tool-names.ts';
 export interface QueueEntry {
   readonly entryId: string;
   readonly videoId: string;
+  /**
+   * A stable sort key that never changes once assigned.
+   *
+   * Position is not identity, and neither are neighbours. Restoring by
+   * "insert after the entry it followed" broke as soon as two removed entries
+   * shared an anchor: with [A,B,C,D], removing C, D, A and undoing in that
+   * order put D before C, because both recorded B as their predecessor
+   * (Gate C). A key the entry keeps makes the restored order independent of the
+   * order the undos happen in.
+   */
+  readonly order: number;
 }
 
 export interface QueueState {
@@ -28,13 +39,22 @@ export interface QueueState {
 export const EMPTY_QUEUE: QueueState = { items: [], currentVideoId: null };
 
 let seq = 0;
-export function newEntry(videoId: string): QueueEntry {
+export function newEntry(videoId: string, order?: number): QueueEntry {
   seq += 1;
-  return { entryId: `q${String(seq)}`, videoId };
+  return { entryId: `q${String(seq)}`, videoId, order: order ?? seq };
 }
 
 export function __resetQueueIds(): void {
   seq = 0;
+}
+
+/** Keeps the list in key order; the only place ordering is decided. */
+export function sorted(items: readonly QueueEntry[]): readonly QueueEntry[] {
+  return [...items].sort((a, b) => a.order - b.order);
+}
+
+function lowestOrder(items: readonly QueueEntry[]): number {
+  return items.reduce((m, e) => Math.min(m, e.order), Number.POSITIVE_INFINITY);
 }
 
 export function add(
@@ -54,9 +74,15 @@ export function add(
       `That would add ${String(videoIds.length)} videos to the queue. Confirm that count to go ahead.`,
     );
   }
-  const entries = videoIds.map(newEntry);
-  const items = position === 'next' ? [...entries, ...q.items] : [...q.items, ...entries];
-  return ok({ ...q, items });
+  // 'next' needs keys below everything present; midpoints keep them distinct
+  // without renumbering anything that already exists.
+  const base = position === 'next' ? lowestOrder(q.items) : Number.NaN;
+  const entries = videoIds.map((id, i) =>
+    position === 'next' && Number.isFinite(base)
+      ? newEntry(id, base - (videoIds.length - i) / (videoIds.length + 1))
+      : newEntry(id),
+  );
+  return ok({ ...q, items: sorted([...q.items, ...entries]) });
 }
 
 /** Removes specific scheduled plays, named by entryId. */
