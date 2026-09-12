@@ -249,19 +249,19 @@ the intended references and every discarding request halts for confirmation.
 
 ### Tests for User Story 4
 
-- [ ] T072 [P] [US4] Contract tests for `curation.*` tools including every confirmation gate in `tests/contract/curation-tools.test.ts`
-- [ ] T073 [P] [US4] Test that an unclear confirmation response **abandons** the action (FR-028) in `tests/integration/unclear-confirmation-refuses.test.ts`
-- [ ] T074 [P] [US4] Test that actions above five references state the count and require confirming it (FR-027) in `tests/integration/bulk-threshold.test.ts`
+- [X] T072 [P] [US4] Contract tests for `curation.*` tools including every confirmation gate in `tests/contract/curation-tools.test.ts`
+- [X] T073 [P] [US4] Test that an unclear confirmation response **abandons** the action (FR-028) in `tests/integration/unclear-confirmation-refuses.test.ts`
+- [X] T074 [P] [US4] Test that actions above five references state the count and require confirming it (FR-027) in `tests/integration/bulk-threshold.test.ts`
 
 ### Implementation for User Story 4
 
-- [ ] T075 [P] [US4] Implement collection state with case-insensitive unique names, refusing duplicates rather than merging, in `src/curation/collections.ts`
-- [ ] T076 [P] [US4] Implement tags and personal labels, keeping person-owned fields separate from cached YouTube fields, in `src/curation/annotations.ts`
-- [ ] T077 [US4] Declare `curation.createCollection` and `addToCollection` in `src/curation/tools/collections.ts`
-- [ ] T078 [US4] Declare `curation.removeFromCollection` and `deleteCollection` with `confirmation: 'required'` in `src/curation/tools/discard.ts`
-- [ ] T079 [P] [US4] Declare `curation.setLabel` asserting `sourceTitleUnchanged` in its result so FR-025 is observable, in `src/curation/tools/label.ts`
-- [ ] T080 [P] [US4] Declare `curation.addTags`/`removeTags` in `src/curation/tools/tags.ts`
-- [ ] T081 [US4] Implement collection and tag UI showing which fields are the person's own in `src/curation/curation-view.tsx`
+- [X] T075 [P] [US4] Implement collection state with case-insensitive unique names, refusing duplicates rather than merging, in `src/curation/collections.ts`
+- [X] T076 [P] [US4] Implement tags and personal labels, keeping person-owned fields separate from cached YouTube fields, in `src/curation/annotations.ts`
+- [X] T077 [US4] Declare `curation.createCollection` and `addToCollection` in `src/curation/tools/collections.ts`
+- [X] T078 [US4] Declare `curation.removeFromCollection` and `deleteCollection` with `confirmation: 'required'` in `src/curation/tools/discard.ts`
+- [X] T079 [P] [US4] Declare `curation.setLabel` asserting `sourceTitleUnchanged` in its result so FR-025 is observable, in `src/curation/tools/label.ts`
+- [X] T080 [P] [US4] Declare `curation.addTags`/`removeTags` in `src/curation/tools/tags.ts`
+- [X] T081 [US4] Implement collection and tag UI showing which fields are the person's own in `src/curation/curation-view.tsx`
 
 **Checkpoint**: All four stories delivered.
 

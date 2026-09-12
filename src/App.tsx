@@ -10,6 +10,11 @@ import { invokeRecorded } from './app/invoke.ts';
 import { CommandChain } from './app/command-chain.ts';
 import { ResultsView } from './catalog/results-view.tsx';
 import { RecordView } from './activity/record-view.tsx';
+import { CurationView } from './curation/curation-view.tsx';
+import {
+  createCollection, deleteCollection, EMPTY_COLLECTIONS, type CollectionsState,
+} from './curation/collections.ts';
+import { resolveCountedConfirmation } from './mcp/confirmation-resolver.ts';
 import { undoEntry } from './activity/undo.ts';
 import { applyQueueUndo } from './queue/restore.ts';
 import type { DescribableEntry } from './activity/describe.ts';
@@ -85,6 +90,7 @@ export function App() {
   const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE);
   const [quota, setQuota] = useState<QuotaView>({ searchCallsRemaining: null, resetsAt: null });
 
+  const [collections, setCollections] = useState<CollectionsState>(EMPTY_COLLECTIONS);
   const [activity, setActivity] = useState<readonly DescribableEntry[]>([]);
   const refreshActivity = useCallback(() => {
     setActivity(
@@ -354,6 +360,53 @@ export function App() {
         onQueue={(id) =>
           // FR-029: the entry must name what it acted on, not just "Queued".
           queueAction(`Queued ${id}`, TOOL.queueAdd, { videoIds: [id] }, (cur) => queueAdd(cur, [id]))
+        }
+      />
+      <CurationView
+        collections={collections.items}
+        videos={results.items}
+        onCreate={(name) =>
+          chain.current?.enqueue(
+            () => Promise.resolve(name),
+            async () => {
+              const r = await invokeRecorded(
+                recorder, TOOL.curationCreateCollection, { name }, `Created collection "${name}"`,
+                () => {
+                  const made = createCollection(collections, name);
+                  if (made.ok) setCollections(made.value.state);
+                  return made;
+                },
+              );
+              setOutcome(r.ok ? `Created "${name}".` : `Refused: ${r.detail}`);
+              refreshActivity();
+            },
+          )
+        }
+        onDelete={(collectionId) =>
+          chain.current?.enqueue(
+            () => Promise.resolve(collectionId),
+            async () => {
+              const target = collections.items.find((c) => c.collectionId === collectionId);
+              const count = target?.videoIds.length ?? 0;
+              // FR-027: the COUNT must be said back, not merely approved. The
+              // prompt names the collection and the number it holds.
+              const answer = globalThis.prompt?.(
+                `Delete "${target?.name ?? collectionId}" and the ${String(count)} video${count === 1 ? '' : 's'} in it? Type the number to confirm.`,
+              );
+              const confirmed = resolveCountedConfirmation(answer, count) === 'confirmed';
+              const r = await invokeRecorded(
+                recorder, TOOL.curationDeleteCollection, { collectionId, confirmed },
+                `Delete collection "${target?.name ?? collectionId}"`,
+                () => {
+                  const done = deleteCollection(collections, collectionId, confirmed ? count : undefined);
+                  if (done.ok) setCollections(done.value.state);
+                  return done;
+                },
+              );
+              setOutcome(r.ok ? `Deleted "${target?.name ?? collectionId}".` : `Refused: ${r.detail}`);
+              refreshActivity();
+            },
+          )
         }
       />
       <RecordView
