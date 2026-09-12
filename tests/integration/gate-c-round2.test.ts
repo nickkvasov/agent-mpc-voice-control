@@ -46,6 +46,36 @@ describe('Gate C round 2', () => {
     expect(called).toEqual(['playback.pause']);
   });
 
+  it('finalises with the previous schemas when every tool vanishes mid-turn', async () => {
+    // Regression for the round-3 finding: sending tools: [] alongside a
+    // transcript that already holds tool_use blocks is a 400.
+    let call = 0;
+    const t: ToolTransport = {
+      listTools: async () =>
+        call === 0 ? [{ name: 'playback.pause', description: 'p', inputSchema: { type: 'object' } }] : [],
+      callTool: async () => ({ ok: true, value: null }),
+    };
+    const sent: { tools: unknown[]; tool_choice?: unknown }[] = [];
+    let i = 0;
+    const responses = [
+      { content: [{ type: 'tool_use', id: 't1', name: 'playback__pause', input: {} }], stop_reason: 'tool_use' },
+      { content: [{ type: 'text', text: 'Paused, and that view has closed.' }], stop_reason: 'end_turn' },
+    ] as unknown as Anthropic.Message[];
+    const client = {
+      messages: {
+        stream: (p: { tools: unknown[]; tool_choice?: unknown }) => {
+          sent.push(p);
+          call += 1;
+          return { finalMessage: async () => responses[i++] };
+        },
+      },
+    } as unknown as Anthropic;
+    const r = await runAgentTurn(client, t, 'pause');
+    expect(sent[1]?.tools).toHaveLength(1);
+    expect(sent[1]?.tool_choice).toEqual({ type: 'none' });
+    expect(r.text).toContain('Paused');
+  });
+
   it('re-queries the tool list on every iteration, not once per turn', async () => {
     let lists = 0;
     const t: ToolTransport = {

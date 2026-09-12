@@ -81,6 +81,15 @@ export async function runAgentTurn(
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: commandText }];
   const toolCalls: { name: string; outcome: ToolCallOutcome }[] = [];
   let text = '';
+  /**
+   * The last non-empty declaration. Kept because a transcript containing
+   * tool_use/tool_result blocks may not be sent with an empty `tools` array —
+   * the API rejects that with a 400 — and the view owning the tools can unmount
+   * mid-turn. Retaining the schemas lets the model finish its sentence about
+   * what it already did; `tool_choice: none` stops it calling anything that is
+   * no longer on screen.
+   */
+  let lastTools: Anthropic.Tool[] = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i += 1) {
     // Re-queried every iteration, not once per turn. Tools exist only while the
@@ -89,18 +98,27 @@ export async function runAgentTurn(
     // ones that appeared (FR-035).
     const declared = await transport.listTools();
     const names = buildToolNameMap(declared.map((t) => t.name));
-    const tools = declared.map((t) => ({
+    const fresh: Anthropic.Tool[] = declared.map((t) => ({
       name: names.toApi.get(t.name) ?? t.name,
       description: t.description,
       input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
     }));
 
+    // Every tool went away mid-turn. Finalise with the previous schemas rather
+    // than sending an empty list the API refuses, and forbid further calls.
+    const toolsVanished = fresh.length === 0 && lastTools.length > 0;
+    const tools = toolsVanished ? lastTools : fresh;
+    if (fresh.length > 0) lastTools = fresh;
+
     const stream = client.messages.stream({
       model: AGENT_MODEL,
       max_tokens: 8192,
       thinking: { type: 'adaptive' },
-      system: SYSTEM_PROMPT,
+      system: toolsVanished
+        ? `${SYSTEM_PROMPT} The view declaring these tools has just closed, so none of them can be called now. Say what you did and what is no longer available.`
+        : SYSTEM_PROMPT,
       tools,
+      ...(toolsVanished ? { tool_choice: { type: 'none' as const } } : {}),
       messages,
     });
     const response = await stream.finalMessage();
