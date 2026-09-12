@@ -24,7 +24,25 @@ export interface EntryLike {
   readonly undone: boolean;
 }
 
-export function eligibility(entry: EntryLike, later: readonly EntryLike[]): UndoEligibility {
+/**
+ * Conditions only the application can answer.
+ *
+ * Eligibility must know everything that would stop an undo, or it offers a
+ * button that then refuses — which FR-044 forbids in as many words. The
+ * name-conflict check lives here rather than only in the restoration path,
+ * because the restoration path runs after the person has already decided it
+ * would work.
+ */
+export interface EligibilityContext {
+  /** Returns a reason when restoring this entry would collide, else null. */
+  readonly blockedBy?: (entry: EntryLike) => string | null;
+}
+
+export function eligibility(
+  entry: EntryLike,
+  later: readonly EntryLike[],
+  context: EligibilityContext = {},
+): UndoEligibility {
   if (entry.result === 'failed') {
     return { state: 'not_reversible', reason: 'This action did not take effect, so there is nothing to undo.' };
   }
@@ -106,6 +124,9 @@ export function eligibility(entry: EntryLike, later: readonly EntryLike[]): Undo
       };
     }
   }
+
+  const blocked = context.blockedBy?.(entry) ?? null;
+  if (blocked !== null) return { state: 'not_reversible', reason: blocked };
 
   return { state: 'undoable' };
 }

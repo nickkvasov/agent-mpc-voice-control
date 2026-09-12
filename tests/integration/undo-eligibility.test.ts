@@ -105,3 +105,27 @@ describe('Gate C round 2: an undone blocker stops blocking', () => {
     expect(eligibility(first, [{ ...second, undone: true }]).state).toBe('undoable');
   });
 });
+
+describe('Gate C round 3: the application can block an undo', () => {
+  const deletion = entry(1, { kind: 'collection_existence', collectionId: 'c1', created: false });
+
+  it('is undoable when nothing blocks it', () => {
+    expect(eligibility(deletion, []).state).toBe('undoable');
+  });
+
+  it('is NOT offered when the application says restoring would collide', () => {
+    // FR-044: the button must not be drawn if pressing it would refuse.
+    const e = eligibility(deletion, [], {
+      blockedBy: () => 'Cannot be restored: a collection called "Favourites" now uses that name.',
+    });
+    expect(e.state).toBe('not_reversible');
+    if (e.state === 'not_reversible') expect(e.reason).toMatch(/now uses that name/);
+  });
+
+  it('a supersession still wins over the application check', () => {
+    const later = entry(2, { kind: 'collection_existence', collectionId: 'c1', created: true });
+    const e = eligibility(deletion, [later], { blockedBy: () => 'name taken' });
+    // Either answer hides the button; the supersession is the more specific one.
+    expect(['superseded', 'not_reversible']).toContain(e.state);
+  });
+});

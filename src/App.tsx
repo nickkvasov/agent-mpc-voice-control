@@ -450,15 +450,23 @@ export function App() {
         results={results}
         quota={quota}
         onPlay={(id) => setOutcome(`Would play ${id} once the player embed lands.`)}
-        onAddToCollection={(id) =>
+        onAddToCollection={(id) => {
+          // Captured at CLICK time. Reading it at execution time sent a video
+          // to whichever collection happened to be selected when the queue
+          // drained, not the one chosen when the button was pressed (Gate C).
+          const wanted = destinationRef.current ?? collectionsRef.current.items[0]?.collectionId ?? null;
           chain.current?.enqueue(
             () => Promise.resolve(id),
             async () => {
-              const chosen =
-                collectionsRef.current.items.find((c) => c.collectionId === destinationRef.current) ??
-                collectionsRef.current.items[0];
-              if (chosen === undefined) {
+              if (wanted === null) {
                 setOutcome('Create a collection first.');
+                return;
+              }
+              const chosen = collectionsRef.current.items.find((c) => c.collectionId === wanted);
+              if (chosen === undefined) {
+                // Refused rather than substituting a different collection.
+                setOutcome('Refused: the collection you chose no longer exists.');
+                refreshActivity();
                 return;
               }
               const first = chosen;
@@ -481,8 +489,8 @@ export function App() {
               setOutcome(r.ok ? `Added to "${first.name}".` : `Refused: ${r.detail}`);
               refreshActivity();
             },
-          )
-        }
+          );
+        }}
         onQueue={(id) =>
           // FR-029: the entry must name what it acted on, not just "Queued".
           queueAction(`Queued ${id}`, TOOL.queueAdd, { videoIds: [id] }, (cur) => queueAdd(cur, [id]))
@@ -621,6 +629,23 @@ export function App() {
       />
       <RecordView
         entries={activity}
+        eligibilityContext={{
+          blockedBy: (entry) => {
+            // The same conflict the restoration path refuses on, asked BEFORE
+            // the button is drawn — otherwise the person decides it will work
+            // and is told afterwards that it will not (FR-044).
+            const effect = entry.effect;
+            if (effect === null || effect.kind !== 'collection_existence' || effect.created) return null;
+            const gone = deletedCollections.current.get(effect.collectionId);
+            if (gone === undefined) return null;
+            const clash = collections.items.find(
+              (c) => c.collectionId !== gone.collectionId && c.name.trim().toLowerCase() === gone.name.trim().toLowerCase(),
+            );
+            return clash === undefined
+              ? null
+              : `Cannot be restored: a collection called "${clash.name}" now uses that name.`;
+          },
+        }}
         onUndo={(entryId) => undoAction(entryId)}
       />
       <p data-testid="what-did-you-do" style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'pre-line' }}>

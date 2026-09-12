@@ -1,4 +1,4 @@
-import { eligibility, type EntryLike } from './supersession.ts';
+import { eligibility, type EligibilityContext, type EntryLike } from './supersession.ts';
 
 /**
  * FR-033: a direct question about recent actions is answered FROM the record.
@@ -26,8 +26,8 @@ export function describeRecent(entries: readonly DescribableEntry[], count = 5):
 }
 
 /** What the record will show for an entry's undo control. */
-export function undoLabel(entry: DescribableEntry, all: readonly EntryLike[]): string {
-  const e = eligibility(entry, all);
+export function undoLabel(entry: DescribableEntry, all: readonly EntryLike[], context: EligibilityContext = {}): string {
+  const e = eligibility(entry, all, context);
   switch (e.state) {
     case 'undoable':
       return 'Undo available.';

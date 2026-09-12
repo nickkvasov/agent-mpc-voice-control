@@ -1,5 +1,5 @@
 import { undoLabel, type DescribableEntry } from './describe.ts';
-import { eligibility } from './supersession.ts';
+import { eligibility, type EligibilityContext } from './supersession.ts';
 
 /**
  * The activity record.
@@ -12,9 +12,11 @@ import { eligibility } from './supersession.ts';
 export interface RecordViewProps {
   readonly entries: readonly DescribableEntry[];
   readonly onUndo: (entryId: string) => void;
+  /** Anything only the application knows that would block an undo. */
+  readonly eligibilityContext?: EligibilityContext;
 }
 
-export function RecordView({ entries, onUndo }: RecordViewProps) {
+export function RecordView({ entries, onUndo, eligibilityContext = {} }: RecordViewProps) {
   const ordered = [...entries].sort((a, b) => b.sequence - a.sequence);
   return (
     <section data-testid="activity" style={{ margin: '0.5rem 0' }}>
@@ -24,7 +26,7 @@ export function RecordView({ entries, onUndo }: RecordViewProps) {
       ) : (
         <ol data-testid="activity-list" style={{ paddingLeft: '1.2rem' }}>
           {ordered.map((e) => {
-            const state = eligibility(e, entries).state;
+            const state = eligibility(e, entries, eligibilityContext).state;
             return (
               <li key={e.entryId} data-testid="activity-entry" style={{ marginBottom: '0.4rem' }}>
                 <div data-testid="activity-description">
@@ -43,7 +45,7 @@ export function RecordView({ entries, onUndo }: RecordViewProps) {
                       Undo
                     </button>
                   ) : (
-                    undoLabel(e, entries)
+                    undoLabel(e, entries, eligibilityContext)
                   )}
                 </div>
               </li>
