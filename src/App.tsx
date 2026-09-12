@@ -130,6 +130,11 @@ export function App() {
   /** What a deleted collection held, so its undo can put it back whole. */
   const deletedCollections = useRef(new Map<string, Collection>());
 
+  /** Which collection "Add to collection" targets. Every click used to hit the first one. */
+  const [destination, setDestination] = useState<string | null>(null);
+  const destinationRef = useRef<string | null>(null);
+  destinationRef.current = destination;
+
   const [storageDurable, setStorageDurable] = useState<boolean | null>(null);
   const stores = useRef<Awaited<ReturnType<typeof openStores>> | null>(null);
 
@@ -449,11 +454,14 @@ export function App() {
           chain.current?.enqueue(
             () => Promise.resolve(id),
             async () => {
-              const first = collectionsRef.current.items[0];
-              if (first === undefined) {
+              const chosen =
+                collectionsRef.current.items.find((c) => c.collectionId === destinationRef.current) ??
+                collectionsRef.current.items[0];
+              if (chosen === undefined) {
                 setOutcome('Create a collection first.');
                 return;
               }
+              const first = chosen;
               const r = await invokeRecorded(
                 recorder, TOOL.curationAddToCollection, { collectionId: first.collectionId, videoIds: [id] },
                 `Add ${id} to "${first.name}"`,
@@ -462,7 +470,13 @@ export function App() {
                   if (done.ok) commitCollections(done.value.state);
                   return done;
                 },
-                () => ({ kind: 'collection_member', collectionId: first.collectionId, videoId: id, added: true }),
+                (v) => ({
+                  kind: 'collection_member',
+                  collectionId: first.collectionId,
+                  videoId: id,
+                  added: true,
+                  index: v.state.items.find((c) => c.collectionId === first.collectionId)?.videoIds.indexOf(id) ?? 0,
+                }),
               );
               setOutcome(r.ok ? `Added to "${first.name}".` : `Refused: ${r.detail}`);
               refreshActivity();
@@ -478,11 +492,14 @@ export function App() {
         collections={collections.items}
         videos={annotated}
         storageDurable={storageDurable}
+        destination={destination ?? collections.items[0]?.collectionId ?? null}
+        onChooseDestination={setDestination}
         onRemoveVideo={(collectionId, videoId) =>
           chain.current?.enqueue(
             () => Promise.resolve(videoId),
             async () => {
               const target = collectionsRef.current.items.find((c) => c.collectionId === collectionId);
+              const removedFrom = target?.videoIds.indexOf(videoId) ?? 0;
               // FR-026: names the specific target before it discards anything.
               const answer = globalThis.prompt?.(`Remove ${videoId} from "${target?.name ?? collectionId}"?`);
               const confirmed = resolveConfirmation(answer) === 'confirmed';
@@ -494,7 +511,14 @@ export function App() {
                   if (done.ok) commitCollections(done.value.state);
                   return done;
                 },
-                () => ({ kind: 'collection_member', collectionId, videoId, added: false }),
+                () => ({
+                  kind: 'collection_member',
+                  collectionId,
+                  videoId,
+                  added: false,
+                  // Captured BEFORE the removal, so the inverse can put it back.
+                  index: removedFrom,
+                }),
               );
               setOutcome(r.ok ? 'Removed.' : `Refused: ${r.detail}`);
               refreshActivity();

@@ -19,7 +19,25 @@ export const EFFECT = {
 export type EffectKind = (typeof EFFECT)[keyof typeof EFFECT];
 
 export type Effect =
-  | { readonly kind: 'collection_member'; readonly collectionId: string; readonly videoId: string; readonly added: boolean }
+  | {
+      readonly kind: 'collection_member';
+      readonly collectionId: string;
+      readonly videoId: string;
+      readonly added: boolean;
+      /**
+       * Where it sat. Collections are ordered, so restoring by appending put a
+       * member back in the wrong place: [a,b,c] minus a, undone, became
+       * [b,c,a] (Gate C) — the same positional lesson the queue taught, which I
+       * failed to carry across.
+       *
+       * Known limitation: restoring SEVERAL removed members out of their
+       * removal order can still misplace them, because each index was taken
+       * against a different array. The queue solved this with a permanent sort
+       * key; collections hold bare ids and would need the same treatment.
+       * Recorded in tasks.md rather than left to be discovered.
+       */
+      readonly index: number;
+    }
   | { readonly kind: 'collection_name'; readonly collectionId: string; readonly from: string; readonly to: string }
   | { readonly kind: 'collection_existence'; readonly collectionId: string; readonly created: boolean }
   | {

@@ -14,16 +14,16 @@ const entry = (sequence: number, effect: Effect | null, over: Partial<EntryLike>
   ...over,
 });
 
-const addXtoC = entry(1, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true });
+const addXtoC = entry(1, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true, index: 0 });
 
 describe('undo eligibility', () => {
   it('case 1: add X then add Y — X is still undoable', () => {
-    const addY = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'Y', added: true });
+    const addY = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'Y', added: true, index: 0 });
     expect(eligibility(addXtoC, [addY]).state).toBe('undoable');
   });
 
   it('case 2: add X then remove X — blocked, undoing would be a no-op', () => {
-    const removeX = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false });
+    const removeX = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false, index: 0 });
     const e = eligibility(addXtoC, [removeX]);
     expect(e.state).toBe('superseded');
     if (e.state === 'superseded') { expect(e.bySequence).toBe(2); expect(e.reason).toMatch(/would change nothing/); }
@@ -56,7 +56,7 @@ describe('undo eligibility', () => {
   });
 
   it('a failed later action blocks nothing — it did not happen', () => {
-    const failedRemove = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false }, { result: 'failed' });
+    const failedRemove = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false, index: 0 }, { result: 'failed' });
     expect(eligibility(addXtoC, [failedRemove]).state).toBe('undoable');
   });
 
@@ -87,10 +87,10 @@ describe('undo eligibility', () => {
 });
 
 describe('Gate C round 2: an undone blocker stops blocking', () => {
-  const addX = entry(1, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true });
+  const addX = entry(1, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true, index: 0 });
 
   it('a removal that was itself undone no longer supersedes the addition', () => {
-    const removal = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false });
+    const removal = entry(2, { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false, index: 0 });
     // While the removal stands, the addition is superseded.
     expect(eligibility(addX, [removal]).state).toBe('superseded');
     // Once that removal is undone, the addition is undoable again — and the

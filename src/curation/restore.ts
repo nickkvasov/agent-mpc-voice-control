@@ -13,6 +13,12 @@ import type { Collection, CollectionsState } from './collections.ts';
  * Deletion carries the whole collection, because restoring it needs its
  * members and its name back, not just its id.
  */
+function nameTaken(state: CollectionsState, name: string, exceptId: string): boolean {
+  return state.items.some(
+    (c) => c.collectionId !== exceptId && c.name.trim().toLowerCase() === name.trim().toLowerCase(),
+  );
+}
+
 export function applyCollectionUndo(
   state: CollectionsState,
   effect: Effect,
@@ -24,6 +30,11 @@ export function applyCollectionUndo(
     if (inverse.created) {
       if (deleted === undefined) return null;
       if (state.items.some((c) => c.collectionId === deleted.collectionId)) return null;
+      // Delete "Favourites", create a new "Favourites", undo the deletion: this
+      // used to restore the old one beside the new one, producing two
+      // collections with the same name — the uniqueness createCollection
+      // enforces, bypassed through the back door (Gate C).
+      if (nameTaken(state, deleted.name, deleted.collectionId)) return null;
       return { items: [...state.items, deleted] };
     }
     const kept = state.items.filter((c) => c.collectionId !== inverse.collectionId);
@@ -35,10 +46,12 @@ export function applyCollectionUndo(
     if (target === undefined) return null;
     if (inverse.added) {
       if (target.videoIds.includes(inverse.videoId)) return null;
+      // Back where it was, not on the end.
+      const at = Math.min(Math.max(inverse.index, 0), target.videoIds.length);
+      const restored = [...target.videoIds];
+      restored.splice(at, 0, inverse.videoId);
       return {
-        items: state.items.map((c) =>
-          c.collectionId === inverse.collectionId ? { ...c, videoIds: [...c.videoIds, inverse.videoId] } : c,
-        ),
+        items: state.items.map((c) => (c.collectionId === inverse.collectionId ? { ...c, videoIds: restored } : c)),
       };
     }
     if (!target.videoIds.includes(inverse.videoId)) return null;

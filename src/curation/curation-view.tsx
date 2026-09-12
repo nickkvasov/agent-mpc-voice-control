@@ -17,10 +17,13 @@ export interface CurationViewProps {
   readonly onTag: (videoId: string) => void;
   /** null while unknown; false means nothing here survives a reload. */
   readonly storageDurable: boolean | null;
+  readonly destination: string | null;
+  readonly onChooseDestination: (collectionId: string) => void;
 }
 
 export function CurationView({
   collections, videos, onCreate, onDelete, onRemoveVideo, onLabel, onTag, storageDurable,
+  destination, onChooseDestination,
 }: CurationViewProps) {
   const byId = new Map(videos.map((v) => [v.videoId, v]));
   return (
@@ -45,6 +48,20 @@ export function CurationView({
         </label>{' '}
         <button type="submit" data-testid="collection-create">Create</button>
       </form>
+      {collections.length > 1 && (
+        <label>
+          Add videos to{' '}
+          <select
+            data-testid="destination"
+            value={destination ?? ''}
+            onChange={(e) => onChooseDestination(e.target.value)}
+          >
+            {collections.map((c) => (
+              <option key={c.collectionId} value={c.collectionId}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {collections.length === 0 ? (
         <p data-testid="collections-empty">No collections yet.</p>
       ) : (
@@ -58,7 +75,23 @@ export function CurationView({
               <ul>
                 {c.videoIds.map((id) => {
                   const v = byId.get(id);
-                  if (v === undefined) return <li key={id}>{id}</li>;
+                  // A member not in the CURRENT results — after a reload, a new
+                  // search, or a narrowing — still needs its Remove control,
+                  // which needs no metadata at all (Gate C).
+                  if (v === undefined) {
+                    return (
+                      <li key={id} data-testid="collection-video">
+                        {id} <small style={{ color: '#555' }}>(details not loaded)</small>{' '}
+                        <button
+                          type="button"
+                          data-testid="remove-from-collection"
+                          onClick={() => onRemoveVideo(c.collectionId, id)}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    );
+                  }
                   const shown = displayName(v);
                   return (
                     <li key={id} data-testid="collection-video">

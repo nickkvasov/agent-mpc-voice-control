@@ -4,7 +4,7 @@ import { describeRecent, undoLabel, type DescribableEntry } from '../../src/acti
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 import type { Effect } from '../../src/activity/effects.ts';
 
-const addX: Effect = { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true };
+const addX: Effect = { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true, index: 0 };
 
 const entry = (over: Partial<UndoableEntry> = {}): UndoableEntry => ({
   entryId: 'e1',
@@ -109,11 +109,11 @@ describe('Gate C regressions', () => {
 
   it('names the blocking entry, not just "a later action"', () => {
     const first: DescribableEntry = {
-      entryId: 'e1', sequence: 1, effect: { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true },
+      entryId: 'e1', sequence: 1, effect: { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true, index: 0 },
       result: 'succeeded', undone: false, description: 'Added X to Favourites', failureDetail: null, at: 0,
     };
     const blocker: DescribableEntry = {
-      entryId: 'e2', sequence: 2, effect: { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false },
+      entryId: 'e2', sequence: 2, effect: { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false, index: 0 },
       result: 'succeeded', undone: false, description: 'Removed X from Favourites', failureDetail: null, at: 0,
     };
     expect(undoLabel(first, [first, blocker])).toMatch(/blocked by: Removed X from Favourites/);

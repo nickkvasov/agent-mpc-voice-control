@@ -263,6 +263,15 @@ the intended references and every discarding request halts for confirmation.
 - [X] T080 [P] [US4] Declare `curation.addTags`/`removeTags` in `src/curation/tools/tags.ts`
 - [X] T081 [US4] Implement collection and tag UI showing which fields are the person's own in `src/curation/curation-view.tsx`
 
+### A known limitation, recorded rather than left to be found
+
+Restoring a removed collection member puts it back at the index it held. Undoing
+SEVERAL removals out of their removal order can still misplace them, because
+each index was taken against a different array. The queue solved the same
+problem with a permanent sort key; collections hold bare video ids and would
+need the same treatment. Single removals — the case the interface actually
+offers — restore correctly and are tested.
+
 **Checkpoint**: All four stories delivered.
 
 ---
