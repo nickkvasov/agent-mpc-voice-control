@@ -34,7 +34,8 @@ import { seek } from './player/tools/seek.ts';
 import { setMuted, setRate, setVolume } from './player/tools/rate-volume.ts';
 import { setCaptions } from './player/tools/captions.ts';
 import type { YouTubePlayer } from './player/player.ts';
-import { isRefusal, type ToolResult } from './mcp/result.ts';
+import { isRefusal, refuse, type ToolResult } from './mcp/result.ts';
+import { REFUSAL_REASON } from './vocab/refusal-reasons.ts';
 
 /** Local calls and agent calls write to the same record (SC-006). */
 const recorder = new ActivityRecorder(createInMemoryActivityStore());
@@ -134,6 +135,21 @@ export function App() {
   const [destination, setDestination] = useState<string | null>(null);
   const destinationRef = useRef<string | null>(null);
   destinationRef.current = destination;
+
+  /**
+   * A destination that has been deleted is forgotten.
+   *
+   * Otherwise selecting B and then deleting B left every later Add capturing a
+   * collection that no longer exists — and with one collection left the
+   * selector is hidden, so there was no way to choose again and additions that
+   * used to work simply refused (Gate C). Additions ALREADY enqueued keep the
+   * destination they captured; this only affects what the next click captures.
+   */
+  useEffect(() => {
+    if (destination !== null && !collections.items.some((c) => c.collectionId === destination)) {
+      setDestination(null);
+    }
+  }, [collections, destination]);
 
   const [storageDurable, setStorageDurable] = useState<boolean | null>(null);
   const stores = useRef<Awaited<ReturnType<typeof openStores>> | null>(null);
@@ -464,8 +480,15 @@ export function App() {
               }
               const chosen = collectionsRef.current.items.find((c) => c.collectionId === wanted);
               if (chosen === undefined) {
-                // Refused rather than substituting a different collection.
-                setOutcome('Refused: the collection you chose no longer exists.');
+                // Refused rather than substituting a different collection — and
+                // RECORDED, because a refusal that leaves no entry is an action
+                // nobody can account for afterwards (SC-006).
+                const r = await invokeRecorded(
+                  recorder, TOOL.curationAddToCollection, { collectionId: wanted, videoIds: [id] },
+                  `Add ${id} to a collection that no longer exists`,
+                  () => refuse(REFUSAL_REASON.noSuchVideo, 'The collection you chose no longer exists.'),
+                );
+                setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
                 refreshActivity();
                 return;
               }
