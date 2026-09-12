@@ -9,6 +9,10 @@ import { ActivityRecorder, createInMemoryActivityStore } from './activity/record
 import { invokeRecorded } from './app/invoke.ts';
 import { CommandChain } from './app/command-chain.ts';
 import { ResultsView } from './catalog/results-view.tsx';
+import { RecordView } from './activity/record-view.tsx';
+import { undoEntry, invert } from './activity/undo.ts';
+import type { DescribableEntry } from './activity/describe.ts';
+import { describeRecent } from './activity/describe.ts';
 import { QueueView } from './queue/queue-view.tsx';
 import { EMPTY, narrowLocally, type ResultSet } from './catalog/results.ts';
 import { searchCatalog, type QuotaView } from './catalog/client.ts';
@@ -80,6 +84,22 @@ export function App() {
   const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE);
   const [quota, setQuota] = useState<QuotaView>({ searchCallsRemaining: null, resetsAt: null });
 
+  const [activity, setActivity] = useState<readonly DescribableEntry[]>([]);
+  const refreshActivity = useCallback(() => {
+    setActivity(
+      recorder.entries().map((e) => ({
+        entryId: e.entryId,
+        sequence: e.sequence,
+        effect: e.effect,
+        result: e.result,
+        undone: e.undone,
+        description: e.description,
+        failureDetail: e.failureDetail,
+        at: e.at,
+      })),
+    );
+  }, []);
+
   /** One order for voice, typing and buttons alike (FR-038). */
   const chain = useRef<CommandChain | null>(null);
   chain.current ??= new CommandChain({
@@ -117,6 +137,7 @@ export function App() {
       // as an agent call does.
       const r = await invokeRecorded(recorder, m.match.tool, i, m.match.interpretation, call);
       setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
+      refreshActivity();
       bump();
     },
     [p, bump],
@@ -155,9 +176,10 @@ export function App() {
           setAsideUnknown: 0,
         });
         setOutcome(`Found ${String(r.value.items.length)}.`);
+        refreshActivity();
       },
     );
-  }, []);
+  }, [refreshActivity]);
 
   const doNarrow = useCallback((maxMinutes: number) => {
     chain.current?.enqueue(
@@ -175,9 +197,10 @@ export function App() {
           },
         );
         setOutcome(`Narrowed to under ${String(maxMinutes)} minutes.`);
+        refreshActivity();
       },
     );
-  }, []);
+  }, [refreshActivity]);
 
   /**
    * Holds the queue as it is NOW.
@@ -200,16 +223,31 @@ export function App() {
       chain.current?.enqueue(
         () => Promise.resolve(label),
         async () => {
+          const before = new Set(queueRef.current.items.map((e) => e.entryId));
           const r = await invokeRecorded(recorder, tool, args, label, () => run(queueRef.current));
+          // The effect is discovered from what actually changed, not predicted:
+          // a predicted effect that did not happen would make the record lie.
+          if (r.ok) {
+            const appeared = r.value.items.find((e) => !before.has(e.entryId));
+            const disappeared = queueRef.current.items.find((e) => !r.value.items.some((n) => n.entryId === e.entryId));
+            const effect =
+              appeared !== undefined
+                ? ({ kind: 'queue_occurrence', entryId: appeared.entryId, added: true } as const)
+                : disappeared !== undefined
+                  ? ({ kind: 'queue_occurrence', entryId: disappeared.entryId, added: false } as const)
+                  : null;
+            if (effect !== null) recorder.attachEffect(effect);
+          }
           setOutcome(r.ok ? `${label}.` : `Refused: ${r.detail}`);
           if (r.ok) {
             queueRef.current = r.value;
             setQueue(r.value);
           }
+          refreshActivity();
         },
       );
     },
-    [],
+    [refreshActivity],
   );
 
   const captions = p.getOption('captions', 'track');
@@ -250,6 +288,47 @@ export function App() {
           queueAction(`Queued ${id}`, TOOL.queueAdd, { videoIds: [id] }, (cur) => queueAdd(cur, [id]))
         }
       />
+      <RecordView
+        entries={activity}
+        onUndo={(entryId) => {
+          const target = activity.find((e) => e.entryId === entryId);
+          if (target === undefined) return;
+          const r = undoEntry(
+            { ...target },
+            activity,
+            {
+              apply: (effect) => {
+                const inverse = invert(effect);
+                if (inverse.kind === 'queue_occurrence' && !inverse.added) {
+                  const before = queueRef.current.items.length;
+                  const next = queueRef.current.items.filter((e) => e.entryId !== inverse.entryId);
+                  queueRef.current = { ...queueRef.current, items: next };
+                  setQueue(queueRef.current);
+                  return next.length !== before;
+                }
+                return false;
+              },
+            },
+          );
+          if (r.ok) {
+            recorder.markUndone(entryId);
+            recorder.record({
+              callId: `undo:${entryId}`,
+              toolName: TOOL.activityUndo,
+              arguments: { entryId },
+              description: r.value.description,
+              result: 'succeeded',
+            });
+            setOutcome(r.value.description);
+          } else {
+            setOutcome(`Refused: ${r.detail}`);
+          }
+          refreshActivity();
+        }}
+      />
+      <p data-testid="what-did-you-do" style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'pre-line' }}>
+        {describeRecent(activity, 3)}
+      </p>
       <QueueView
         queue={queue}
         onRemoveEntry={(entryId) => {

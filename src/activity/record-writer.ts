@@ -1,5 +1,6 @@
 import type { RefusalReason } from '../vocab/refusal-reasons.ts';
 import type { ToolName } from '../vocab/tool-names.ts';
+import type { Effect } from './effects.ts';
 
 /**
  * The activity record writer.
@@ -20,6 +21,11 @@ export type UndoState = 'undoable' | 'undone' | 'superseded' | 'not_reversible';
 
 export interface ActivityEntry {
   readonly entryId: string;
+  /** Monotonic, so "later" is a fact rather than a guess about timestamps. */
+  readonly sequence: number;
+  /** What this changed, by stable identity — drives undo eligibility. */
+  readonly effect: Effect | null;
+  readonly undone: boolean;
   readonly commandId: string | null;
   readonly toolName: ToolName | string;
   readonly arguments: unknown;
@@ -37,6 +43,7 @@ export interface ActivityEntry {
 export interface ActivityStore {
   append(entry: ActivityEntry): void;
   list(): readonly ActivityEntry[];
+  replace(entryId: string, update: (entry: ActivityEntry) => ActivityEntry): void;
 }
 
 export function createInMemoryActivityStore(): ActivityStore {
@@ -46,11 +53,17 @@ export function createInMemoryActivityStore(): ActivityStore {
       entries.push(entry);
     },
     list: () => entries,
+    replace: (entryId, update) => {
+      const i = entries.findIndex((e) => e.entryId === entryId);
+      if (i === -1) return;
+      entries[i] = update(entries[i] as ActivityEntry);
+    },
   };
 }
 
 export interface RecordedCall {
   readonly callId: string;
+  readonly effect?: Effect | null;
   readonly commandId?: string | null;
   readonly toolName: ToolName | string;
   readonly arguments: unknown;
@@ -89,6 +102,9 @@ export class ActivityRecorder {
     this.#counter += 1;
     const entry: ActivityEntry = {
       entryId: `e${this.#counter}`,
+      sequence: this.#counter,
+      effect: call.effect ?? null,
+      undone: false,
       commandId: call.commandId ?? null,
       toolName: call.toolName,
       arguments: call.arguments,
@@ -107,5 +123,23 @@ export class ActivityRecorder {
 
   entries(): readonly ActivityEntry[] {
     return this.#store.list();
+  }
+
+  /**
+   * Attaches the effect to the entry just written.
+   *
+   * Effects are discovered from what actually changed rather than predicted
+   * before the call: a predicted effect that did not occur would make the
+   * record describe something that never happened.
+   */
+  attachEffect(effect: Effect): void {
+    const last = this.#store.list().at(-1);
+    if (last === undefined) return;
+    this.#store.replace(last.entryId, (e) => ({ ...e, effect }));
+  }
+
+  /** Marks an entry undone so it is not offered again (FR-031's counterpart). */
+  markUndone(entryId: string): void {
+    this.#store.replace(entryId, (e) => ({ ...e, undone: true }));
   }
 }

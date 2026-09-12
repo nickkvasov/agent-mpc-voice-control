@@ -1,6 +1,7 @@
 import { ActivityRecorder } from '../activity/record-writer.ts';
 import { isRefusal, type ToolResult } from '../mcp/result.ts';
 import type { ToolName } from '../vocab/tool-names.ts';
+import type { Effect } from '../activity/effects.ts';
 
 /**
  * The single recorded invocation boundary for LOCAL calls.
@@ -22,6 +23,8 @@ export async function invokeRecorded<T>(
   input: Record<string, unknown>,
   describe: string,
   run: () => Promise<ToolResult<T>> | ToolResult<T>,
+  /** What a success changed, by stable identity. Absent means not reversible. */
+  effect: Effect | null = null,
 ): Promise<ToolResult<T>> {
   counter += 1;
   const callId = `local:${String(counter)}`;
@@ -38,7 +41,7 @@ export async function invokeRecorded<T>(
             failureDetail: result.detail,
             refusalReason: result.reason,
           }
-        : { callId, toolName: tool, arguments: input, description: describe, result: 'succeeded' },
+        : { callId, toolName: tool, arguments: input, description: describe, result: 'succeeded', effect },
     );
     return result;
   } catch (cause) {

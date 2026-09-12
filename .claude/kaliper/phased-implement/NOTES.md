@@ -207,5 +207,34 @@ budget denies. Note that a newly applied filter legitimately leaving the same
 videos visible is NOT `unchanged` — the criteria changed even though the set did
 not.
 
+### 2026-09-12 — what does "a later action depends on it" mean for undo?
+
+**The problem.** FR-044 disables undo when later actions depend on an entry, and
+FR-030 promises undo of ANY reversible entry. Read too broadly, almost nothing
+stays undoable — adding X to a collection then adding Y would block undoing X.
+Read too loosely, an undo silently does the wrong thing.
+
+**Codex chose the permissive reading with guarded inverses**, and gave the rule
+three concrete conditions. A later action blocks undo when it:
+1. overwrites or consumes the earlier effect,
+2. destroys an identity the inverse needs, or
+3. establishes a still-effective state the inverse would violate.
+
+**Sharing a container is not enough.** Effects are tracked by stable identity —
+membership `(collection, video)`, a collection's name, one queue occurrence — so
+two independent additions to the same collection do not block each other.
+
+**Adopted, with the settled cases:** add X then add Y → X still undoable; add X
+then remove X → blocked (the inverse would be a no-op); rename C→D→E → blocked
+(restoring C would overwrite E); add X then delete C → blocked (the identity is
+gone); queue X then clear → blocked.
+
+**Two requirements I had not planned for**, both adopted:
+- **A fourth state.** Where eligibility cannot be established, the record says
+  *undo availability unknown* with the reason and offers no button — Constitution
+  IV applied to eligibility itself, not just to data.
+- **Revalidate at execution, not only at render.** The guard is checked again
+  when undo actually runs, and a no-op is never reported as a successful undo.
+
 Add further entries as under-determined decisions arise — two defensible readings of the spec, not
 merely hard problems.

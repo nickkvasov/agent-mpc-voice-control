@@ -223,18 +223,18 @@ confirm the visible result set matches the stated criteria at each step.
 
 ### Tests for User Story 3
 
-- [ ] T063 [P] [US3] Test that undo works on a non-most-recent entry (FR-030) in `tests/integration/undo-arbitrary-entry.test.ts`
-- [ ] T064 [P] [US3] Test that a superseded entry names its superseding entry and **does not offer** undo (FR-044) in `tests/integration/undo-superseded.test.ts`
-- [ ] T065 [P] [US3] Test that `activity.describeRecent` matches the record exactly (FR-033) in `tests/integration/describe-matches-record.test.ts`
+- [X] T063 [P] [US3] Test that undo works on a non-most-recent entry (FR-030) in `tests/integration/undo-arbitrary-entry.test.ts`
+- [X] T064 [P] [US3] Test that a superseded entry names its superseding entry and **does not offer** undo (FR-044) in `tests/integration/undo-superseded.test.ts`
+- [X] T065 [P] [US3] Test that `activity.describeRecent` matches the record exactly (FR-033) in `tests/integration/describe-matches-record.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T066 [US3] Implement inverse computation per tool, with `null` meaning not reversible, in `src/activity/inverses.ts`
-- [ ] T067 [US3] Implement supersession detection setting `undoState` and `supersededBy` from a named later entry, never inferred, in `src/activity/supersession.ts`
-- [ ] T068 [US3] Declare `activity.undo` returning `not_reversible`/`superseded` instead of attempting and failing in `src/activity/tools/undo.ts`
-- [ ] T069 [P] [US3] Declare `activity.list` and `activity.describeRecent` answering **from the record** in `src/activity/tools/read.ts`
-- [ ] T070 [US3] Implement partial-failure recording — what was applied and what was not, never recorded as success (FR-032) — in `src/activity/partial-failure.ts`
-- [ ] T071 [US3] Implement the activity record UI in interface vocabulary, hiding undo where unavailable, in `src/activity/record-view.tsx`
+- [X] T066 [US3] Implement inverse computation per tool, with `null` meaning not reversible, in `src/activity/inverses.ts`
+- [X] T067 [US3] Implement supersession detection setting `undoState` and `supersededBy` from a named later entry, never inferred, in `src/activity/supersession.ts`
+- [X] T068 [US3] Declare `activity.undo` returning `not_reversible`/`superseded` instead of attempting and failing in `src/activity/tools/undo.ts`
+- [X] T069 [P] [US3] Declare `activity.list` and `activity.describeRecent` answering **from the record** in `src/activity/tools/read.ts`
+- [X] T070 [US3] Implement partial-failure recording — what was applied and what was not, never recorded as success (FR-032) — in `src/activity/partial-failure.ts`
+- [X] T071 [US3] Implement the activity record UI in interface vocabulary, hiding undo where unavailable, in `src/activity/record-view.tsx`
 
 **Checkpoint**: US3 independently testable.
 
