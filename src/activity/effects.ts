@@ -22,7 +22,18 @@ export type Effect =
   | { readonly kind: 'collection_member'; readonly collectionId: string; readonly videoId: string; readonly added: boolean }
   | { readonly kind: 'collection_name'; readonly collectionId: string; readonly from: string; readonly to: string }
   | { readonly kind: 'collection_existence'; readonly collectionId: string; readonly created: boolean }
-  | { readonly kind: 'queue_occurrence'; readonly entryId: string; readonly added: boolean }
+  | {
+      readonly kind: 'queue_occurrence';
+      readonly entryId: string;
+      readonly added: boolean;
+      /**
+       * Enough to put it BACK. A removal's inverse needs the video and the
+       * position it held; without them Undo could be offered and never able to
+       * restore anything (Gate C).
+       */
+      readonly videoId: string;
+      readonly index: number;
+    }
   | { readonly kind: 'tag'; readonly videoId: string; readonly tag: string; readonly added: boolean }
   | { readonly kind: 'label'; readonly videoId: string; readonly from: string | null; readonly to: string | null };
 

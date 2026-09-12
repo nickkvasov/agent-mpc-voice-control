@@ -165,6 +165,9 @@ export function App() {
         );
         if (!r.ok) {
           setOutcome(`Refused: ${r.detail}`);
+          // The refusal IS evidence and was recorded; without this it stayed
+          // invisible until some later action happened to refresh the panel.
+          refreshActivity();
           return;
         }
         setQuota(r.value.quota);
@@ -232,9 +235,22 @@ export function App() {
             const disappeared = queueRef.current.items.find((e) => !r.value.items.some((n) => n.entryId === e.entryId));
             const effect =
               appeared !== undefined
-                ? ({ kind: 'queue_occurrence', entryId: appeared.entryId, added: true } as const)
+                ? ({
+                    kind: 'queue_occurrence',
+                    entryId: appeared.entryId,
+                    added: true,
+                    videoId: appeared.videoId,
+                    index: r.value.items.findIndex((e) => e.entryId === appeared.entryId),
+                  } as const)
                 : disappeared !== undefined
-                  ? ({ kind: 'queue_occurrence', entryId: disappeared.entryId, added: false } as const)
+                  ? ({
+                      kind: 'queue_occurrence',
+                      entryId: disappeared.entryId,
+                      added: false,
+                      videoId: disappeared.videoId,
+                      // Where it was, so the inverse can put it back there.
+                      index: queueRef.current.items.findIndex((e) => e.entryId === disappeared.entryId),
+                    } as const)
                   : null;
             if (effect !== null) recorder.attachEffect(effect);
           }
@@ -242,6 +258,68 @@ export function App() {
           if (r.ok) {
             queueRef.current = r.value;
             setQueue(r.value);
+          }
+          refreshActivity();
+        },
+      );
+    },
+    [refreshActivity],
+  );
+
+  /**
+   * Undo goes through the same ordering boundary as everything else (FR-038):
+   * pressing it while a transcript is pending used to let it overtake the
+   * earlier command. The target and the history are re-read when it RUNS, not
+   * when the button was pressed.
+   */
+  const undoAction = useCallback(
+    (entryId: string) => {
+      chain.current?.enqueue(
+        () => Promise.resolve(entryId),
+        async () => {
+          const entries = recorder.entries();
+          const target = entries.find((e) => e.entryId === entryId);
+          if (target === undefined) {
+            setOutcome('That entry is no longer in the record.');
+            refreshActivity();
+            return;
+          }
+          // Through the recorded boundary, so a REFUSED undo leaves evidence
+          // too — a refusal that vanishes is the gap this record exists to close.
+          const r = await invokeRecorded(
+            recorder,
+            TOOL.activityUndo,
+            { entryId },
+            `Undo: ${target.description}`,
+            () =>
+              undoEntry({ ...target, entryId: target.entryId, description: target.description }, entries, {
+                apply: (effect) => {
+                  const inverse = invert(effect);
+                  if (inverse.kind !== 'queue_occurrence') return false;
+                  const items = [...queueRef.current.items];
+                  if (inverse.added) {
+                    // Restoring a removal: put it back where it was.
+                    if (items.some((e) => e.entryId === inverse.entryId)) return false;
+                    const at = Math.min(Math.max(inverse.index, 0), items.length);
+                    items.splice(at, 0, { entryId: inverse.entryId, videoId: inverse.videoId });
+                  } else {
+                    const before = items.length;
+                    const kept = items.filter((e) => e.entryId !== inverse.entryId);
+                    if (kept.length === before) return false;
+                    items.length = 0;
+                    items.push(...kept);
+                  }
+                  queueRef.current = { ...queueRef.current, items };
+                  setQueue(queueRef.current);
+                  return true;
+                },
+              }),
+          );
+          if (r.ok) {
+            recorder.markUndone(entryId);
+            setOutcome(r.value.description);
+          } else {
+            setOutcome(`Refused: ${r.detail}`);
           }
           refreshActivity();
         },
@@ -290,41 +368,7 @@ export function App() {
       />
       <RecordView
         entries={activity}
-        onUndo={(entryId) => {
-          const target = activity.find((e) => e.entryId === entryId);
-          if (target === undefined) return;
-          const r = undoEntry(
-            { ...target },
-            activity,
-            {
-              apply: (effect) => {
-                const inverse = invert(effect);
-                if (inverse.kind === 'queue_occurrence' && !inverse.added) {
-                  const before = queueRef.current.items.length;
-                  const next = queueRef.current.items.filter((e) => e.entryId !== inverse.entryId);
-                  queueRef.current = { ...queueRef.current, items: next };
-                  setQueue(queueRef.current);
-                  return next.length !== before;
-                }
-                return false;
-              },
-            },
-          );
-          if (r.ok) {
-            recorder.markUndone(entryId);
-            recorder.record({
-              callId: `undo:${entryId}`,
-              toolName: TOOL.activityUndo,
-              arguments: { entryId },
-              description: r.value.description,
-              result: 'succeeded',
-            });
-            setOutcome(r.value.description);
-          } else {
-            setOutcome(`Refused: ${r.detail}`);
-          }
-          refreshActivity();
-        }}
+        onUndo={(entryId) => undoAction(entryId)}
       />
       <p data-testid="what-did-you-do" style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'pre-line' }}>
         {describeRecent(activity, 3)}

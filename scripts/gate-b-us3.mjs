@@ -63,5 +63,21 @@ if (undoButtons > 0) {
   console.log('--- record after undo ---');
   for (const r of await record()) console.log(`  ${r.what}\n      ${r.undo}`);
 }
+// Gate C found Undo offered on a removal it could never restore. Drive it.
+console.log('--- queue, remove, then undo the REMOVAL ---');
+await page.locator('[data-testid="result-item"] >> text=Queue').first().click();
+await page.waitForTimeout(200);
+console.log('queued      :', await page.locator('[data-testid="queue"] h2').innerText());
+await page.locator('[data-testid="queue-item"] >> text=Remove').first().click();
+await page.waitForTimeout(200);
+console.log('removed     :', await page.locator('[data-testid="queue"] h2').innerText());
+const btns = await page.locator('[data-testid="undo-button"]').all();
+if (btns.length > 0) {
+  await btns[0].click();
+  await page.waitForTimeout(300);
+  console.log('after undo  :', await page.locator('[data-testid="queue"] h2').innerText());
+  console.log('outcome     :', await page.locator('[data-testid="outcome"]').innerText());
+}
+console.log('record size :', await page.locator('[data-testid="activity-entry"]').count());
 console.log('page errors:', errors.length === 0 ? '(none)' : errors);
 await browser.close();

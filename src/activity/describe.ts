@@ -31,8 +31,16 @@ export function undoLabel(entry: DescribableEntry, all: readonly EntryLike[]): s
   switch (e.state) {
     case 'undoable':
       return 'Undo available.';
-    case 'superseded':
-      return e.reason;
+    case 'superseded': {
+      // Name the blocking action. The reason alone said only "a later action",
+      // and since the button is hidden the person never saw which one — so the
+      // record explained that undo was unavailable without explaining why
+      // (Gate C).
+      const blocker = all.find((x) => x.sequence === e.bySequence) as DescribableEntry | undefined;
+      return blocker?.description === undefined
+        ? e.reason
+        : `${e.reason} (blocked by: ${blocker.description})`;
+    }
     case 'not_reversible':
       return e.reason;
     case 'unknown':

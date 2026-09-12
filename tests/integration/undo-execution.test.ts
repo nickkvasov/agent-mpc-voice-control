@@ -62,7 +62,7 @@ describe('undo execution', () => {
     expect(invert(addX)).toMatchObject({ added: false });
     expect(invert({ kind: 'collection_name', collectionId: 'C', from: 'C', to: 'D' })).toMatchObject({ from: 'D', to: 'C' });
     expect(invert({ kind: 'label', videoId: 'X', from: null, to: 'Q3' })).toMatchObject({ from: 'Q3', to: null });
-    expect(invert({ kind: 'queue_occurrence', entryId: 'q1', added: true })).toMatchObject({ added: false });
+    expect(invert({ kind: 'queue_occurrence', entryId: 'q1', added: true, videoId: 'X', index: 0 })).toMatchObject({ added: false });
   });
 });
 
@@ -94,5 +94,26 @@ describe('answering from the record (FR-033)', () => {
   it('labels an unknown eligibility as unknown rather than offering undo', () => {
     const partial = d({ result: 'partially_applied', effect: addX });
     expect(undoLabel(partial, [partial])).toMatch(/^Undo availability unknown/);
+  });
+});
+
+describe('Gate C regressions', () => {
+  const qEffect = (added: boolean): Effect => ({ kind: 'queue_occurrence', entryId: 'q1', added, videoId: 'X', index: 1 });
+
+  it('a removal carries enough to put the entry back', () => {
+    const inv = invert(qEffect(false));
+    expect(inv).toMatchObject({ added: true, videoId: 'X', index: 1 });
+  });
+
+  it('names the blocking entry, not just "a later action"', () => {
+    const first: DescribableEntry = {
+      entryId: 'e1', sequence: 1, effect: { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: true },
+      result: 'succeeded', undone: false, description: 'Added X to Favourites', failureDetail: null, at: 0,
+    };
+    const blocker: DescribableEntry = {
+      entryId: 'e2', sequence: 2, effect: { kind: 'collection_member', collectionId: 'C', videoId: 'X', added: false },
+      result: 'succeeded', undone: false, description: 'Removed X from Favourites', failureDetail: null, at: 0,
+    };
+    expect(undoLabel(first, [first, blocker])).toMatch(/blocked by: Removed X from Favourites/);
   });
 });
