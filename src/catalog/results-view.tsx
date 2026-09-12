@@ -20,10 +20,11 @@ export interface ResultsViewProps {
   readonly results: ResultSet;
   readonly quota: QuotaView;
   readonly onQueue: (videoId: string) => void;
+  readonly onAddToCollection: (videoId: string) => void;
   readonly onPlay: (videoId: string) => void;
 }
 
-export function ResultsView({ results, quota, onQueue, onPlay }: ResultsViewProps) {
+export function ResultsView({ results, quota, onQueue, onPlay, onAddToCollection }: ResultsViewProps) {
   return (
     <section data-testid="results" style={{ margin: '0.5rem 0' }}>
       <h2 style={{ fontSize: '1rem' }}>Results</h2>
@@ -49,7 +50,10 @@ export function ResultsView({ results, quota, onQueue, onPlay }: ResultsViewProp
                 ({isUnknown(v.durationSeconds) ? 'length not yet known' : `${String(Math.round((v.durationSeconds as number) / 60))} min`})
               </small>{' '}
               <button type="button" onClick={() => onPlay(v.videoId)}>Play</button>{' '}
-              <button type="button" onClick={() => onQueue(v.videoId)}>Queue</button>
+              <button type="button" onClick={() => onQueue(v.videoId)}>Queue</button>{' '}
+              <button type="button" data-testid="add-to-collection" onClick={() => onAddToCollection(v.videoId)}>
+                Add to collection
+              </button>
             </li>
           ))}
         </ol>

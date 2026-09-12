@@ -125,19 +125,6 @@ export class ActivityRecorder {
     return this.#store.list();
   }
 
-  /**
-   * Attaches the effect to the entry just written.
-   *
-   * Effects are discovered from what actually changed rather than predicted
-   * before the call: a predicted effect that did not occur would make the
-   * record describe something that never happened.
-   */
-  attachEffect(effect: Effect): void {
-    const last = this.#store.list().at(-1);
-    if (last === undefined) return;
-    this.#store.replace(last.entryId, (e) => ({ ...e, effect }));
-  }
-
   /** Marks an entry undone so it is not offered again (FR-031's counterpart). */
   markUndone(entryId: string): void {
     this.#store.replace(entryId, (e) => ({ ...e, undone: true }));

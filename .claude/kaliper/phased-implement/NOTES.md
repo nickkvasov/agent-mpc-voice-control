@@ -148,6 +148,30 @@ test that function and break it. If breaking the implementation does not turn a
 test red, the test is not covering the fix — re-check before believing a green
 break-it, because a break-it that passes proves nothing at all.
 
+### 2026-09-13 — an effect recorded against the wrong action
+
+**What happened.** Effects were attached with a separate `attachEffect` call
+that wrote to the LAST entry in the record. Callers invoked it inside the
+handler — which runs BEFORE the writer has written its own entry — so the effect
+landed on the PREVIOUS action. Driving it showed a search offering an Undo
+button, and pressing it reported *"Undid: Search for talks"* while removing a
+video from a collection.
+
+**Why it is worth recording.** Nothing was wrong with either piece. The writer
+was correct, the handler was correct, and the bug lived entirely in the ORDER
+they ran in — invisible in any single file, and invisible to the unit tests,
+because both halves behaved exactly as written.
+
+**Standing rule.** A fact derived from a result belongs to the code that writes
+the result, not to a second call the caller makes afterwards. `invokeRecorded`
+now takes an `effectOf(value)` function and attaches it itself, so an effect
+cannot be filed against an action that did not cause it.
+
+**Second rule, from the same run:** if an entry is offered as undoable, its
+inverse must actually be implemented. Recording a label effect with no
+annotation-undo path produced an Undo button that refused when pressed, which
+FR-044 forbids in as many words.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

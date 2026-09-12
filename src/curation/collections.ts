@@ -77,15 +77,19 @@ export function addToCollection(
   if (target === undefined) return refuse(REFUSAL_REASON.noSuchVideo, 'That collection no longer exists.');
   if (videoIds.length === 0) return refuse(REFUSAL_REASON.argumentsInvalid, 'No videos were given.');
 
-  const alreadyPresent = videoIds.filter((id) => target.videoIds.includes(id));
-  const added = videoIds.filter((id) => !target.videoIds.includes(id));
+  // Deduplicated FIRST. Checking each id against the original membership let
+  // ['x','x'] store x twice, which inflated the confirmation count and left a
+  // later single removal deleting both while reporting one (Gate C).
+  const requested = [...new Set(videoIds)];
+  const alreadyPresent = requested.filter((id) => target.videoIds.includes(id));
+  const added = requested.filter((id) => !target.videoIds.includes(id));
   if (added.length === 0) {
     // Reported, not silently treated as a success with no effect.
     return refuse(
       REFUSAL_REASON.argumentsInvalid,
-      videoIds.length === 1
+      requested.length === 1
         ? `That video is already in "${target.name}".`
-        : `All ${String(videoIds.length)} are already in "${target.name}".`,
+        : `All ${String(requested.length)} are already in "${target.name}".`,
     );
   }
   if (added.length > BULK_THRESHOLD && confirmedCount !== added.length) {
@@ -111,7 +115,7 @@ export function removeFromCollection(
 ): ToolResult<{ state: CollectionsState; removed: readonly string[] }> {
   const target = state.items.find((c) => c.collectionId === collectionId);
   if (target === undefined) return refuse(REFUSAL_REASON.noSuchVideo, 'That collection no longer exists.');
-  const removed = videoIds.filter((id) => target.videoIds.includes(id));
+  const removed = [...new Set(videoIds)].filter((id) => target.videoIds.includes(id));
   if (removed.length === 0) {
     return refuse(REFUSAL_REASON.noSuchVideo, `None of those are in "${target.name}".`);
   }

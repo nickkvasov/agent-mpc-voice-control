@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Controls } from './player/controls.tsx';
 import { CommandInput } from './app/command-input.tsx';
 import { Interpretation } from './app/interpretation.tsx';
@@ -14,7 +14,12 @@ import { CurationView } from './curation/curation-view.tsx';
 import {
   createCollection, deleteCollection, EMPTY_COLLECTIONS, type CollectionsState,
 } from './curation/collections.ts';
-import { resolveCountedConfirmation } from './mcp/confirmation-resolver.ts';
+import { resolveCountedConfirmation, resolveConfirmation } from './mcp/confirmation-resolver.ts';
+import { addToCollection, removeFromCollection, type Collection } from './curation/collections.ts';
+import { setLabel, addTag } from './curation/annotations.ts';
+import { applyCollectionUndo } from './curation/restore.ts';
+import { applyAnnotationUndo } from './curation/annotation-restore.ts';
+import { openStores } from './store/indexeddb.ts';
 import { undoEntry } from './activity/undo.ts';
 import { applyQueueUndo } from './queue/restore.ts';
 import type { DescribableEntry } from './activity/describe.ts';
@@ -90,7 +95,78 @@ export function App() {
   const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE);
   const [quota, setQuota] = useState<QuotaView>({ searchCallsRemaining: null, resetsAt: null });
 
+  /**
+   * The person's own annotations, applied over the cached catalog facts.
+   *
+   * Held apart from the result set because they belong to different owners: a
+   * label is theirs, a title is YouTube's. Recording a label without applying it
+   * left the interface showing the source title while the record said it had
+   * been labelled (Gate B).
+   */
+  const [annotations, setAnnotations] = useState<ReadonlyMap<string, { label: string | null; tags: readonly string[] }>>(new Map());
+  const annotationsRef = useRef<ReadonlyMap<string, { label: string | null; tags: readonly string[] }>>(new Map());
+  const annotate = useCallback((videoId: string, change: { label?: string | null; tags?: readonly string[] }) => {
+    setAnnotations((cur) => {
+      const next = new Map(cur);
+      const existing = next.get(videoId) ?? { label: null, tags: [] };
+      next.set(videoId, { label: change.label !== undefined ? change.label : existing.label, tags: change.tags ?? existing.tags });
+      annotationsRef.current = next;
+      return next;
+    });
+  }, []);
+
   const [collections, setCollections] = useState<CollectionsState>(EMPTY_COLLECTIONS);
+  /**
+   * Collections as they are NOW.
+   *
+   * The same lesson the queue taught in Phase 4 and I did not carry across:
+   * serialising mutations does not make their inputs fresh. Two creations
+   * enqueued while a search was pending both captured the same snapshot, so the
+   * second replaced the first — and both were recorded as successes (Gate C).
+   */
+  const collectionsRef = useRef<CollectionsState>(EMPTY_COLLECTIONS);
+  collectionsRef.current = collections;
+
+  /** What a deleted collection held, so its undo can put it back whole. */
+  const deletedCollections = useRef(new Map<string, Collection>());
+
+  const [storageDurable, setStorageDurable] = useState<boolean | null>(null);
+  const stores = useRef<Awaited<ReturnType<typeof openStores>> | null>(null);
+
+  // FR-039: curation survives a reload. Hydrated once, and a non-durable store
+  // is REPORTED rather than silently treated as session-only.
+  useEffect(() => {
+    let live = true;
+    void openStores().then(async (outcome) => {
+      if (!live) return;
+      stores.current = outcome;
+      setStorageDurable(outcome.durable);
+      const saved = await outcome.stores.collections.all();
+      if (saved.length > 0) setCollections({ items: [...saved] as Collection[] });
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const persistCollections = useCallback(async (next: CollectionsState) => {
+    const s = stores.current;
+    if (s === null) return;
+    const existing = await s.stores.collections.all();
+    for (const c of existing) {
+      if (!next.items.some((n) => n.collectionId === c.collectionId)) await s.stores.collections.delete(c.collectionId);
+    }
+    for (const c of next.items) await s.stores.collections.put(c.collectionId, c);
+  }, []);
+
+  const commitCollections = useCallback(
+    (next: CollectionsState) => {
+      collectionsRef.current = next;
+      setCollections(next);
+      void persistCollections(next);
+    },
+    [persistCollections],
+  );
   const [activity, setActivity] = useState<readonly DescribableEntry[]>([]);
   const refreshActivity = useCallback(() => {
     setActivity(
@@ -234,33 +310,22 @@ export function App() {
         () => Promise.resolve(label),
         async () => {
           const before = new Set(queueRef.current.items.map((e) => e.entryId));
-          const r = await invokeRecorded(recorder, tool, args, label, () => run(queueRef.current));
-          // The effect is discovered from what actually changed, not predicted:
-          // a predicted effect that did not happen would make the record lie.
-          if (r.ok) {
-            const appeared = r.value.items.find((e) => !before.has(e.entryId));
-            const disappeared = queueRef.current.items.find((e) => !r.value.items.some((n) => n.entryId === e.entryId));
-            const effect =
-              appeared !== undefined
-                ? ({
-                    kind: 'queue_occurrence',
-                    entryId: appeared.entryId,
-                    added: true,
-                    videoId: appeared.videoId,
-                    order: appeared.order,
-                  } as const)
-                : disappeared !== undefined
-                  ? ({
-                      kind: 'queue_occurrence',
-                      entryId: disappeared.entryId,
-                      added: false,
-                      videoId: disappeared.videoId,
-                      // The key it held, so any undo order restores it exactly.
-                      order: disappeared.order,
-                    } as const)
-                  : null;
-            if (effect !== null) recorder.attachEffect(effect);
-          }
+          const snapshot = queueRef.current.items;
+          const r = await invokeRecorded(
+            recorder, tool, args, label, () => run(queueRef.current),
+            // Discovered from what actually changed, and attached by the writer
+            // itself so it cannot land on a previous entry.
+            (value) => {
+              const appeared = value.items.find((e) => !before.has(e.entryId));
+              if (appeared !== undefined) {
+                return { kind: 'queue_occurrence', entryId: appeared.entryId, added: true, videoId: appeared.videoId, order: appeared.order };
+              }
+              const gone = snapshot.find((e) => !value.items.some((n) => n.entryId === e.entryId));
+              return gone === undefined
+                ? null
+                : { kind: 'queue_occurrence', entryId: gone.entryId, added: false, videoId: gone.videoId, order: gone.order };
+            },
+          );
           setOutcome(r.ok ? `${label}.` : `Refused: ${r.detail}`);
           if (r.ok) {
             queueRef.current = r.value;
@@ -301,12 +366,29 @@ export function App() {
             () =>
               undoEntry({ ...target, entryId: target.entryId, description: target.description }, entries, {
                 apply: (effect) => {
-                  // One call. The restoration logic is a module function, not
-                  // inline here, so a test can drive the path the app runs.
-                  const next = applyQueueUndo(queueRef.current, effect);
-                  if (next === null) return false;
-                  queueRef.current = next;
-                  setQueue(next);
+                  // Both restoration paths are module functions, not inline
+                  // here, so tests can drive what the app runs.
+                  if (effect.kind === 'queue_occurrence') {
+                    const next = applyQueueUndo(queueRef.current, effect);
+                    if (next === null) return false;
+                    queueRef.current = next;
+                    setQueue(next);
+                    return true;
+                  }
+                  if (effect.kind === 'label' || effect.kind === 'tag') {
+                    const next = applyAnnotationUndo(annotationsRef.current, effect);
+                    if (next === null) return false;
+                    annotationsRef.current = next;
+                    setAnnotations(next);
+                    return true;
+                  }
+                  const restored = applyCollectionUndo(
+                    collectionsRef.current,
+                    effect,
+                    effect.kind === 'collection_existence' ? deletedCollections.current.get(effect.collectionId) : undefined,
+                  );
+                  if (restored === null) return false;
+                  commitCollections(restored);
                   return true;
                 },
               }),
@@ -323,6 +405,12 @@ export function App() {
     },
     [refreshActivity],
   );
+
+  /** Catalog facts with the person's annotations laid over them. */
+  const annotated = results.items.map((v) => {
+    const mine = annotations.get(v.videoId);
+    return mine === undefined ? v : { ...v, label: mine.label, tags: mine.tags };
+  });
 
   const captions = p.getOption('captions', 'track');
   const track = typeof captions === 'object' && captions !== null
@@ -357,6 +445,30 @@ export function App() {
         results={results}
         quota={quota}
         onPlay={(id) => setOutcome(`Would play ${id} once the player embed lands.`)}
+        onAddToCollection={(id) =>
+          chain.current?.enqueue(
+            () => Promise.resolve(id),
+            async () => {
+              const first = collectionsRef.current.items[0];
+              if (first === undefined) {
+                setOutcome('Create a collection first.');
+                return;
+              }
+              const r = await invokeRecorded(
+                recorder, TOOL.curationAddToCollection, { collectionId: first.collectionId, videoIds: [id] },
+                `Add ${id} to "${first.name}"`,
+                () => {
+                  const done = addToCollection(collectionsRef.current, first.collectionId, [id]);
+                  if (done.ok) commitCollections(done.value.state);
+                  return done;
+                },
+                () => ({ kind: 'collection_member', collectionId: first.collectionId, videoId: id, added: true }),
+              );
+              setOutcome(r.ok ? `Added to "${first.name}".` : `Refused: ${r.detail}`);
+              refreshActivity();
+            },
+          )
+        }
         onQueue={(id) =>
           // FR-029: the entry must name what it acted on, not just "Queued".
           queueAction(`Queued ${id}`, TOOL.queueAdd, { videoIds: [id] }, (cur) => queueAdd(cur, [id]))
@@ -364,7 +476,77 @@ export function App() {
       />
       <CurationView
         collections={collections.items}
-        videos={results.items}
+        videos={annotated}
+        storageDurable={storageDurable}
+        onRemoveVideo={(collectionId, videoId) =>
+          chain.current?.enqueue(
+            () => Promise.resolve(videoId),
+            async () => {
+              const target = collectionsRef.current.items.find((c) => c.collectionId === collectionId);
+              // FR-026: names the specific target before it discards anything.
+              const answer = globalThis.prompt?.(`Remove ${videoId} from "${target?.name ?? collectionId}"?`);
+              const confirmed = resolveConfirmation(answer) === 'confirmed';
+              const r = await invokeRecorded(
+                recorder, TOOL.curationRemoveFromCollection, { collectionId, videoId },
+                `Remove ${videoId} from "${target?.name ?? collectionId}"`,
+                () => {
+                  const done = removeFromCollection(collectionsRef.current, collectionId, [videoId], confirmed);
+                  if (done.ok) commitCollections(done.value.state);
+                  return done;
+                },
+                () => ({ kind: 'collection_member', collectionId, videoId, added: false }),
+              );
+              setOutcome(r.ok ? 'Removed.' : `Refused: ${r.detail}`);
+              refreshActivity();
+            },
+          )
+        }
+        onLabel={(videoId) =>
+          chain.current?.enqueue(
+            () => Promise.resolve(videoId),
+            async () => {
+              const video = annotated.find((v) => v.videoId === videoId);
+              if (video === undefined) return;
+              const answer = globalThis.prompt?.(`A label for "${video.title}"? Leave blank to clear it.`);
+              if (answer === null || answer === undefined) return;
+              const r = await invokeRecorded(
+                recorder, TOOL.curationSetLabel, { videoId, label: answer },
+                `Label ${videoId}`,
+                () => {
+                  const done = setLabel(video, answer.trim() === '' ? null : answer);
+                  if (done.ok) annotate(videoId, { label: done.value.label });
+                  return done;
+                },
+                (v) => ({ kind: 'label', videoId, from: v.previousLabel, to: v.label }),
+              );
+              setOutcome(r.ok ? `Labelled — the video is still "${r.value.sourceTitle}" on YouTube.` : `Refused: ${r.detail}`);
+              refreshActivity();
+            },
+          )
+        }
+        onTag={(videoId) =>
+          chain.current?.enqueue(
+            () => Promise.resolve(videoId),
+            async () => {
+              const video = annotated.find((v) => v.videoId === videoId);
+              if (video === undefined) return;
+              const answer = globalThis.prompt?.(`A tag for "${video.title}"?`);
+              if (answer === null || answer === undefined || answer.trim() === '') return;
+              const r = await invokeRecorded(
+                recorder, TOOL.curationAddTags, { videoId, tag: answer },
+                `Tag ${videoId} "${answer.trim()}"`,
+                () => {
+                  const done = addTag([video], answer);
+                  if (done.ok) annotate(videoId, { tags: [...video.tags, done.value.tag] });
+                  return done;
+                },
+                (v) => ({ kind: 'tag', videoId, tag: v.tag, added: true }),
+              );
+              setOutcome(r.ok ? `Tagged "${r.value.tag}".` : `Refused: ${r.detail}`);
+              refreshActivity();
+            },
+          )
+        }
         onCreate={(name) =>
           chain.current?.enqueue(
             () => Promise.resolve(name),
@@ -372,8 +554,8 @@ export function App() {
               const r = await invokeRecorded(
                 recorder, TOOL.curationCreateCollection, { name }, `Created collection "${name}"`,
                 () => {
-                  const made = createCollection(collections, name);
-                  if (made.ok) setCollections(made.value.state);
+                  const made = createCollection(collectionsRef.current, name);
+                  if (made.ok) commitCollections(made.value.state);
                   return made;
                 },
               );
@@ -386,7 +568,7 @@ export function App() {
           chain.current?.enqueue(
             () => Promise.resolve(collectionId),
             async () => {
-              const target = collections.items.find((c) => c.collectionId === collectionId);
+              const target = collectionsRef.current.items.find((c) => c.collectionId === collectionId);
               const count = target?.videoIds.length ?? 0;
               // FR-027: the COUNT must be said back, not merely approved. The
               // prompt names the collection and the number it holds.
@@ -398,10 +580,14 @@ export function App() {
                 recorder, TOOL.curationDeleteCollection, { collectionId, confirmed },
                 `Delete collection "${target?.name ?? collectionId}"`,
                 () => {
-                  const done = deleteCollection(collections, collectionId, confirmed ? count : undefined);
-                  if (done.ok) setCollections(done.value.state);
+                  const done = deleteCollection(collectionsRef.current, collectionId, confirmed ? count : undefined);
+                  if (done.ok) {
+                    deletedCollections.current.set(collectionId, done.value.deleted);
+                    commitCollections(done.value.state);
+                  }
                   return done;
                 },
+                () => ({ kind: 'collection_existence', collectionId, created: false }),
               );
               setOutcome(r.ok ? `Deleted "${target?.name ?? collectionId}".` : `Refused: ${r.detail}`);
               refreshActivity();

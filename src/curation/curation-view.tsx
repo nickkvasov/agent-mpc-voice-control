@@ -12,13 +12,25 @@ export interface CurationViewProps {
   readonly videos: readonly VideoReference[];
   readonly onCreate: (name: string) => void;
   readonly onDelete: (collectionId: string) => void;
+  readonly onRemoveVideo: (collectionId: string, videoId: string) => void;
+  readonly onLabel: (videoId: string) => void;
+  readonly onTag: (videoId: string) => void;
+  /** null while unknown; false means nothing here survives a reload. */
+  readonly storageDurable: boolean | null;
 }
 
-export function CurationView({ collections, videos, onCreate, onDelete }: CurationViewProps) {
+export function CurationView({
+  collections, videos, onCreate, onDelete, onRemoveVideo, onLabel, onTag, storageDurable,
+}: CurationViewProps) {
   const byId = new Map(videos.map((v) => [v.videoId, v]));
   return (
     <section data-testid="curation" style={{ margin: '0.5rem 0' }}>
       <h2 style={{ fontSize: '1rem' }}>Collections ({collections.length})</h2>
+      {storageDurable === false && (
+        <p data-testid="storage-warning" style={{ color: '#a00', fontSize: '0.85rem' }}>
+          Storage is unavailable in this browser, so collections will NOT survive a reload.
+        </p>
+      )}
       <form
         data-testid="collection-form"
         onSubmit={(e) => {
@@ -58,7 +70,16 @@ export function CurationView({ collections, videos, onCreate, onDelete }: Curati
                       )}
                       {v.tags.length > 0 && (
                         <small data-testid="video-tags" style={{ color: '#555' }}> · your tags: {v.tags.join(', ')}</small>
-                      )}
+                      )}{' '}
+                      <button type="button" data-testid="label-video" onClick={() => onLabel(id)}>Label</button>{' '}
+                      <button type="button" data-testid="tag-video" onClick={() => onTag(id)}>Tag</button>{' '}
+                      <button
+                        type="button"
+                        data-testid="remove-from-collection"
+                        onClick={() => onRemoveVideo(c.collectionId, id)}
+                      >
+                        Remove
+                      </button>
                     </li>
                   );
                 })}

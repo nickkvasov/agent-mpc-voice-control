@@ -23,8 +23,17 @@ export async function invokeRecorded<T>(
   input: Record<string, unknown>,
   describe: string,
   run: () => Promise<ToolResult<T>> | ToolResult<T>,
-  /** What a success changed, by stable identity. Absent means not reversible. */
-  effect: Effect | null = null,
+  /**
+   * What a success changed, by stable identity. Absent means not reversible.
+   *
+   * A FUNCTION rather than a value, because the effect is usually only knowable
+   * from the result. Attaching it separately after the call was worse than
+   * either: `attachEffect` writes to the LAST entry, and callers were invoking
+   * it inside `run` — before this function had written its entry — so the
+   * effect landed on the PREVIOUS action. A search became undoable and undoing
+   * it reported "Undid: Search" while removing a collection member (Gate B).
+   */
+  effectOf: ((value: T) => Effect | null) | null = null,
 ): Promise<ToolResult<T>> {
   counter += 1;
   const callId = `local:${String(counter)}`;
@@ -41,7 +50,14 @@ export async function invokeRecorded<T>(
             failureDetail: result.detail,
             refusalReason: result.reason,
           }
-        : { callId, toolName: tool, arguments: input, description: describe, result: 'succeeded', effect },
+        : {
+            callId,
+            toolName: tool,
+            arguments: input,
+            description: describe,
+            result: 'succeeded',
+            effect: effectOf === null ? null : effectOf(result.value),
+          },
     );
     return result;
   } catch (cause) {
