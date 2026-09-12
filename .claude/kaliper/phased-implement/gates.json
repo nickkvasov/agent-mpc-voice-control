@@ -1,7 +1,33 @@
 {
-  "$comment": "The gate commands for agent-mpc-voice-control-1. kaliper:phased-implement reads this file and never invents a command: an empty array or a null means UNCONFIGURED, and the skill reports that gate as NOT RUN rather than guessing. Detected from package.json at init; edit by hand from here on — nothing replaces it without --redetect-gates. UNCONFIGURED AT INIT: fast, final, live — fill these in before the first run.",
-  "packageManager": null,
-  "fast": [],
-  "final": [],
-  "live": null
+  "$comment": "The gate commands for agent-mpc-voice-control-1. kaliper:phased-implement reads this file and never invents a command: an empty array or a null means UNCONFIGURED, and the skill reports that gate as NOT RUN rather than guessing. Filled by hand at T006 — every command below was executed and observed green before being written here, per the rule that a gate running an inferred command reports PASS and means nothing. Nothing replaces this file without --redetect-gates.",
+  "packageManager": "npm",
+  "fast": [
+    {
+      "run": "npm run typecheck",
+      "when": "always",
+      "why": "Cheapest and catches the most. Runs first so a type error stops the phase before a slower suite spends time on it."
+    },
+    {
+      "run": "npm run lint",
+      "when": "always"
+    },
+    {
+      "run": "npm test",
+      "when": "source or tests changed",
+      "why": "Vitest, contract and integration only. The e2e suite is excluded by the include globs in vite.config.ts and belongs in `final`, because it needs browser binaries and a running server."
+    },
+    {
+      "run": "npm run build",
+      "when": "source changed",
+      "why": "Last of the fast gate: it is the slowest, and a type or unit failure makes it redundant."
+    }
+  ],
+  "final": [
+    "npm run test:e2e"
+  ],
+  "live": {
+    "start": ["npm run dev"],
+    "urls": ["http://localhost:5273"],
+    "note": "Port 5273 is deliberate, not the Vite default. A test-agent-mcp dev server occupies 5173 on this machine, and an e2e run attached to it and asserted against that unrelated app's DOM. vite.config.ts sets strictPort so a collision fails loudly instead of drifting to the next free port while the runner talks to whatever holds 5273; playwright.config.ts sets reuseExistingServer:false for the same reason. Readiness: the Vite dev server answers within about a second, but a rendered shell is not a working feature — once the backend exists, check that the ticket endpoint answers before treating a connected-looking UI as ready."
+  }
 }

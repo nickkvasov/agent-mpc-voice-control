@@ -1,20 +1,29 @@
-# What a green gate has actually cost here
+# What a green gate has missed here
 
-**This file is a stub.** Nobody has written down what this project's suites miss yet, so the live gate
-in `kaliper:phased-implement` has no local evidence behind it. The gate still runs — this file is
-what makes it persuasive rather than a rule somebody can argue away.
+Evidence for this project. `kaliper:phased-implement` reads this before deciding a live run is
+optional — it never is, but this is where the local reasons accumulate.
 
-Fill it in the first time a live run finds something a green suite did not. That entry is worth more
-than anything written here in advance.
+## Incidents
 
-## Sections worth having
+### 2026-09-12 — the e2e gate asserted against a different application
 
-- **The gate passed and the browser disagreed.** Each incident: what was green, what the live run
-  found, and why no case could see it.
-- **Defects a real transport hides.** Timing bugs that disappear under a real round trip, and what to
-  assert instead of the outcome.
-- **Assertions that could not fail.** Break-it attempts that stayed green because the check matched
-  too loosely.
-- **Readiness rules.** Anywhere the UI claims ready before the backend can answer.
-- **Decisions that go to codex before the code exists.** The modules, dictionaries and contracts whose
-  blast radius is wide enough to be worth a second opinion.
+**What happened.** The first `npm run test:e2e` run failed with a DOM that belonged to the
+`agent-mcp-react` demo board, not this project. Playwright's `reuseExistingServer` attached to a
+`test-agent-mcp` dev server already listening on Vite's default port 5173 and drove that instead of
+starting ours.
+
+**Why it matters more than a red run suggests.** It failed only because the two apps happen to render
+different text. Had our shell contained the asserted string, the run would have reported **PASS while
+never loading this project's code at all** — a green gate proving nothing, which is the failure this
+file exists to record.
+
+**Fixed by** moving the dev server to port 5273 with `strictPort: true` (so a collision fails loudly
+rather than drifting to the next free port) and `reuseExistingServer: false`.
+
+**Standing readiness rule.** Before trusting a live run, confirm the server under test is *this*
+project's. A responding port is not identity.
+
+## Decisions that go to codex
+
+Nothing recorded yet. Add entries as under-determined decisions arise — two defensible readings of
+the spec, not merely hard problems.

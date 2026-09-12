@@ -31,12 +31,12 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 
 **Purpose**: Project skeleton and the gate commands the phase workflow depends on.
 
-- [ ] T001 Scaffold Vite + React 18 + TypeScript project (ESM only, Node ≥22) in `package.json`, `vite.config.ts`, `tsconfig.json`
-- [ ] T002 [P] Configure Vitest for unit and contract tests in `vitest.config.ts`
-- [ ] T003 [P] Configure Playwright against installed chromium in `playwright.config.ts`
+- [X] T001 Scaffold Vite + React 19 + TypeScript project (ESM only, Node ≥22) in `package.json`, `vite.config.ts`, `tsconfig.json`
+- [X] T002 [P] Configure Vitest for unit and contract tests in `vite.config.ts` (colocated with the Vite config so the include globs have one owner, per IMMUNE-N)
+- [X] T003 [P] Configure Playwright against installed chromium in `playwright.config.ts`
 - [ ] T004 [P] Scaffold backend server (Node ≥22, ESM) in `server/index.ts` and `server/tsconfig.json`
 - [ ] T005 [P] Add `.env.example` documenting `YOUTUBE_API_KEY` and `ANTHROPIC_API_KEY` as **server-only** variables in `.env.example`
-- [ ] T006 **Fill the gate commands** — `fast`, `final`, `live` are UNCONFIGURED, so `kaliper:phased-implement` will report every gate NOT RUN until this is done — in `.claude/kaliper/phased-implement/gates.json`
+- [X] T006 **Fill the gate commands** — `fast`, `final`, `live` are UNCONFIGURED, so `kaliper:phased-implement` will report every gate NOT RUN until this is done — in `.claude/kaliper/phased-implement/gates.json`
 
 ---
 
