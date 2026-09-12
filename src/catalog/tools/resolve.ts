@@ -40,8 +40,13 @@ export function resolveReference(items: readonly VideoReference[], reference: st
     .replace(/[.,!?;:]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  const ordinalWord = Object.keys(ORDINALS).find((w) => bare === w);
-  const positional = /^#?\s*(\d{1,2})(?:st|nd|rd|th)?$/.exec(bare);
+  // The phrase may end in a noun for the thing being counted — "the second
+  // video", "the last clip". Allowed only as a trailing word of an otherwise
+  // bare positional phrase, so "the one about video encoding" is still a title
+  // reference rather than a position.
+  const COUNTED_NOUN = '(?:\\s+(?:video|videos|clip|clips|track|tracks))?';
+  const ordinalWord = Object.keys(ORDINALS).find((w) => new RegExp(`^${w}${COUNTED_NOUN}$`).test(bare));
+  const positional = new RegExp(`^#?\\s*(\\d{1,2})(?:st|nd|rd|th)?${COUNTED_NOUN}$`).exec(bare);
   const index =
     ordinalWord !== undefined ? ORDINALS[ordinalWord] : positional !== null ? Number(positional[1]) : undefined;
 

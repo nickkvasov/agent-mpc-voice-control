@@ -302,3 +302,24 @@ describe('Gate C round 3 regressions', () => {
     }
   });
 });
+
+describe('Gate C round 4 regressions', () => {
+  const withDur = (id: string, title: string, dur: number) =>
+    makeVideoReference({ videoId: id, title, channelTitle: 'c', durationSeconds: dur, publishedAt: 0 });
+
+  const items = [withDur('aaaaaaaaaaa', 'Video encoding basics', 100), withDur('bbbbbbbbbbb', 'Pricing deep dive', 200)];
+
+  it('resolves an ordinal followed by the counted noun', () => {
+    for (const phrase of ['the second video', 'the 2nd video', '2nd clip', 'the last video']) {
+      const r = resolveReference(items, phrase);
+      expect(r.ok, phrase).toBe(true);
+      if (r.ok) expect(r.value.videoId, phrase).toBe('bbbbbbbbbbb');
+    }
+  });
+
+  it('still treats a title that contains "video" as a title reference', () => {
+    const r = resolveReference(items, 'the one about video encoding');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.videoId).toBe('aaaaaaaaaaa');
+  });
+});
