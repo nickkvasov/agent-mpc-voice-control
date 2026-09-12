@@ -28,6 +28,7 @@ interface SpeechRecognitionInstance {
   stop(): void;
   onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
   onerror: ((e: { error?: string }) => void) | null;
+  onend: (() => void) | null;
 }
 
 interface SpeechRecognitionStatic {
@@ -37,14 +38,38 @@ interface SpeechRecognitionStatic {
   prototype?: object;
 }
 
-/** An open capture. `stop()` ends it and returns what was heard. */
+export function speechRecognitionCtor(g: typeof globalThis = globalThis): SpeechRecognitionStatic | undefined {
+  const w = g as unknown as Record<string, unknown>;
+  const ctor = w['SpeechRecognition'] ?? w['webkitSpeechRecognition'];
+  return typeof ctor === 'function' ? (ctor as unknown as SpeechRecognitionStatic) : undefined;
+}
+
+/**
+ * An open capture.
+ *
+ * `stop()` is ASYNCHRONOUS because `SpeechRecognition.stop()` returns before
+ * recognition finishes and the final `result` can arrive afterwards. Returning
+ * the transcript synchronously submitted an interim or empty string whenever
+ * the person released promptly, and the real result had nowhere to go (Gate C).
+ *
+ * `abort()` exists for the case where the hold ended before the session was
+ * even handed back — the microphone must not be left running.
+ */
 export interface RecognitionSession {
-  stop(): string;
+  stop(): Promise<string>;
+  abort(): void;
 }
 
 export type StartOutcome =
   | { readonly ok: true; readonly session: RecognitionSession }
   | { readonly ok: false; readonly detail: string };
+
+export interface StartOptions {
+  /** Errors arrive through onerror, not as a throw from start() (Gate C). */
+  readonly onError?: (detail: string) => void;
+}
+
+const FINAL_RESULT_GRACE_MS = 1200;
 
 /**
  * Opens a capture with `processLocally` forced on.
@@ -52,7 +77,10 @@ export type StartOutcome =
  * Never falls back to the default mode: that mode lets the browser send audio
  * to a server, which FR-043 forbids, and a fallback here would be invisible.
  */
-export function startOnDeviceRecognition(g: typeof globalThis = globalThis): StartOutcome {
+export function startOnDeviceRecognition(
+  g: typeof globalThis = globalThis,
+  options: StartOptions = {},
+): StartOutcome {
   const Ctor = speechRecognitionCtor(g);
   if (Ctor === undefined) return { ok: false, detail: 'This browser has no speech recognition.' };
   try {
@@ -61,27 +89,60 @@ export function startOnDeviceRecognition(g: typeof globalThis = globalThis): Sta
     r.continuous = true;
     r.interimResults = true;
     r.processLocally = true;
+
     let heard = '';
-    r.onresult = (e) => {
+    let finished = false;
+    let resolveFinal: ((text: string) => void) | null = null;
+
+    const finish = (): void => {
+      if (finished) return;
+      finished = true;
+      resolveFinal?.(heard);
+      resolveFinal = null;
+    };
+
+    r.onresult = (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
       let text = '';
       for (let i = 0; i < e.results.length; i += 1) {
         text += e.results[i]?.[0]?.transcript ?? '';
       }
       heard = text;
     };
-    r.onerror = () => {};
+    r.onerror = (e: { error?: string }) => {
+      // Microphone denial and device failures arrive here, not as a throw.
+      // Swallowing them left the interface showing "Listening" forever.
+      options.onError?.(errorDetail(e.error));
+      finish();
+    };
+    r.onend = finish;
     r.start();
+
+    const stopOnce = (): void => {
+      try {
+        r.stop();
+      } catch {
+        // Stopping an already-stopped recogniser is not a failure worth
+        // surfacing; whatever was heard is still delivered.
+      }
+    };
+
     return {
       ok: true,
       session: {
-        stop: () => {
-          try {
-            r.stop();
-          } catch {
-            // Stopping an already-stopped recogniser is not a failure worth
-            // surfacing; what was heard is still returned.
-          }
-          return heard;
+        stop: () =>
+          new Promise<string>((resolve) => {
+            if (finished) {
+              resolve(heard);
+              return;
+            }
+            resolveFinal = resolve;
+            stopOnce();
+            // A recogniser that never fires onend must not hang the control.
+            setTimeout(finish, FINAL_RESULT_GRACE_MS);
+          }),
+        abort: () => {
+          finish();
+          stopOnce();
         },
       },
     };
@@ -90,10 +151,18 @@ export function startOnDeviceRecognition(g: typeof globalThis = globalThis): Sta
   }
 }
 
-export function speechRecognitionCtor(g: typeof globalThis = globalThis): SpeechRecognitionStatic | undefined {
-  const w = g as unknown as Record<string, unknown>;
-  const ctor = w['SpeechRecognition'] ?? w['webkitSpeechRecognition'];
-  return typeof ctor === 'function' ? (ctor as unknown as SpeechRecognitionStatic) : undefined;
+function errorDetail(code: string | undefined): string {
+  switch (code) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'The microphone was refused, so voice is unavailable. Typing works.';
+    case 'audio-capture':
+      return 'No microphone could be used, so voice is unavailable. Typing works.';
+    case 'no-speech':
+      return 'Nothing was heard.';
+    default:
+      return `Speech recognition failed${code === undefined ? '' : ` (${code})`}. Typing works.`;
+  }
 }
 
 export async function probeOnDeviceRecognition(g: typeof globalThis = globalThis): Promise<VoiceProbeResult> {

@@ -30,6 +30,15 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
   const [detail, setDetail] = useState('Press and hold to talk. Voice is checked the first time you use it.');
   const [capturing, setCapturing] = useState(false);
   const session = useRef<RecognitionSession | null>(null);
+  /**
+   * Whether the button is held RIGHT NOW, tracked apart from `capturing`.
+   *
+   * The first press probes, and the probe is asynchronous. If the person
+   * released while it was still running, the continuation used to start the
+   * microphone anyway and nothing ever stopped it — the mic stayed live after
+   * release (Gate C). Every start now checks the hold is still the same one.
+   */
+  const holdId = useRef(0);
 
   const ensureProbed = useCallback(async (): Promise<VoiceAvailability> => {
     setPhase('probing');
@@ -40,11 +49,28 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
   }, []);
 
   const begin = useCallback(async () => {
-    const availability = phase === 'unprobed' || phase === 'probing' ? await ensureProbed() : phase === 'installing' ? 'downloadable' : phase;
+    holdId.current += 1;
+    const thisHold = holdId.current;
+    const availability =
+      phase === 'unprobed' || phase === 'probing' ? await ensureProbed() : phase === 'installing' ? 'downloadable' : phase;
+    // The hold ended (or another began) while the probe ran. Do not open a mic
+    // nobody is holding.
+    if (thisHold !== holdId.current) return;
     if (availability !== 'available') return;
-    const started = startOnDeviceRecognition();
+    const started = startOnDeviceRecognition(globalThis, {
+      onError: (detail) => {
+        setDetail(detail);
+        setCapturing(false);
+        session.current = null;
+      },
+    });
     if (!started.ok) {
       setDetail(started.detail);
+      return;
+    }
+    if (thisHold !== holdId.current) {
+      // Released during start-up: close it immediately rather than leaving it open.
+      started.session.abort();
       return;
     }
     session.current = started.session;
@@ -52,14 +78,18 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
   }, [phase, ensureProbed]);
 
   const end = useCallback(() => {
-    if (!capturing) return;
+    // Invalidate any start still in flight, whether or not one is open yet.
+    holdId.current += 1;
     setCapturing(false);
     const s = session.current;
     session.current = null;
     if (s === null) return;
-    const text = s.stop();
-    if (text.trim() !== '') onUtterance(text);
-  }, [capturing, onUtterance]);
+    // The final transcript arrives after stop(); waiting for it is what makes a
+    // prompt release usable at all.
+    void s.stop().then((text) => {
+      if (text.trim() !== '') onUtterance(text);
+    });
+  }, [onUtterance]);
 
   return (
     <section data-testid="push-to-talk" style={{ margin: '0.5rem 0' }}>

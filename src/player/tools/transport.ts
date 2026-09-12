@@ -69,10 +69,12 @@ export async function stop(p: YouTubePlayer, ctx: PlaybackContext, timeoutMs?: n
       return refuse(REFUSAL_REASON.notPlaying, 'There is no video loaded, so there is nothing to stop.');
     }
     p.stopVideo();
-    const settled = await settleUntil(
-      () => playerState(p) === PLAYER_STATE.ended || playerState(p) === PLAYER_STATE.unstarted,
-      timeoutMs,
-    );
+    // stopVideo may legitimately leave the player ended, unstarted, paused or
+    // cued. Insisting on the first two reported a working stop as refused.
+    const STOPPED: readonly PlayerState[] = [
+      PLAYER_STATE.ended, PLAYER_STATE.unstarted, PLAYER_STATE.paused, PLAYER_STATE.cued,
+    ];
+    const settled = await settleUntil(() => STOPPED.includes(playerState(p)), timeoutMs);
     return settled
       ? ok(snapshot(p))
       : refuse(REFUSAL_REASON.refusedByPlayer, `Asked the player to stop; it is still ${playerState(p)}.`);
