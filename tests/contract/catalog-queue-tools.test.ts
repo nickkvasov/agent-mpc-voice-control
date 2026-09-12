@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { narrowLocally, describeCriteria, EMPTY, type ResultSet } from '../../src/catalog/results.ts';
 import { resolveReference } from '../../src/catalog/tools/resolve.ts';
-import { add, clear, remove, removeAt, reorder, EMPTY_QUEUE } from '../../src/queue/queue.ts';
+import { add, clear, removeEntries, removeVideo, reorder, EMPTY_QUEUE, newEntry } from '../../src/queue/queue.ts';
 import { makeVideoReference } from '../../src/store/video-reference.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 import { SearchBudget, DAILY_WORKING_CAP, BURST, REPLENISH_MS } from '../../server/catalog-proxy/budget.ts';
@@ -77,8 +77,9 @@ describe('queue', () => {
     const a = add(EMPTY_QUEUE, ['x', 'y']);
     expect(a.ok).toBe(true);
     if (!a.ok) return;
-    expect(reorder(a.value, 'y', 0).ok).toBe(true);
-    expect(remove(a.value, ['x']).ok).toBe(true);
+    const second = a.value.items[1] as { entryId: string };
+    expect(reorder(a.value, second.entryId, 0).ok).toBe(true);
+    expect(removeVideo(a.value, ['x']).ok).toBe(true);
   });
 
   it('allows the same video twice — watching again is not a duplicate', () => {
@@ -86,7 +87,7 @@ describe('queue', () => {
     if (!a.ok) return;
     const b = add(a.value, ['x']);
     expect(b.ok).toBe(true);
-    if (b.ok) expect(b.value.items).toEqual(['x', 'x']);
+    if (b.ok) expect(b.value.items.map((e) => e.videoId)).toEqual(['x', 'x']);
   });
 
   it('requires confirmation above the bulk threshold', () => {
@@ -96,14 +97,14 @@ describe('queue', () => {
   });
 
   it('requires the count to clear a large queue', () => {
-    const big = { items: ['1', '2', '3', '4', '5', '6'], currentVideoId: null };
+    const big = { items: ['1', '2', '3', '4', '5', '6'].map(newEntry), currentVideoId: null };
     expect(clear(big).ok).toBe(false);
     expect(clear(big, 5).ok).toBe(false);
     expect(clear(big, 6).ok).toBe(true);
   });
 
   it('refuses to remove something that is not there', () => {
-    expect(remove(EMPTY_QUEUE, ['nope']).ok).toBe(false);
+    expect(removeVideo(EMPTY_QUEUE, ['nope']).ok).toBe(false);
   });
 });
 
@@ -188,16 +189,18 @@ describe('Gate C round 1 regressions', () => {
   });
 
   it('removes one occurrence of a repeated video, not both', () => {
-    const q = { items: ['A', 'B', 'A'], currentVideoId: null };
-    const r = removeAt(q, 0);
+    const q = { items: ['A', 'B', 'A'].map(newEntry), currentVideoId: null };
+    const first = q.items[0] as { entryId: string };
+    const r = removeEntries(q, [first.entryId]);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.items).toEqual(['B', 'A']);
+    if (r.ok) expect(r.value.items.map((e) => e.videoId)).toEqual(['B', 'A']);
   });
 
   it('gates a bulk removal and then allows it once the count is confirmed', () => {
-    const q = { items: ['1', '2', '3', '4', '5', '6'], currentVideoId: null };
-    expect(remove(q, q.items).ok).toBe(false);
-    expect(remove(q, q.items, 6).ok).toBe(true);
+    const q = { items: ['1', '2', '3', '4', '5', '6'].map(newEntry), currentVideoId: null };
+    const ids = q.items.map((e) => e.entryId);
+    expect(removeEntries(q, ids).ok).toBe(false);
+    expect(removeEntries(q, ids, 6).ok).toBe(true);
   });
 
   it('allows a bulk add once the count is confirmed, rather than forbidding it forever', () => {
@@ -249,6 +252,53 @@ describe('Gate C round 2 regressions', () => {
     };
     apply((cur) => add(cur, ['A']));
     apply((cur) => add(cur, ['B']));
-    expect(current.items).toEqual(['A', 'B']);
+    expect(current.items.map((e) => e.videoId)).toEqual(['A', 'B']);
+  });
+});
+
+describe('Gate C round 3 regressions', () => {
+  const withDur = (id: string, title: string, dur: number) =>
+    makeVideoReference({ videoId: id, title, channelTitle: 'c', durationSeconds: dur, publishedAt: 0 });
+
+  it('a delayed removal deletes the clicked entry, not whatever moved into its slot', () => {
+    // Gate C: with [A,B,C], clicking A's Remove twice during a slow search made
+    // the second click delete B while claiming it removed A.
+    const q = { items: ['A', 'B', 'C'].map(newEntry), currentVideoId: null };
+    const aEntry = q.items[0] as { entryId: string };
+    const first = removeEntries(q, [aEntry.entryId]);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    // The same command applied again to the CHANGED queue must not hit B.
+    const second = removeEntries(first.value, [aEntry.entryId]);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.detail).toMatch(/no longer in the queue|removed already/);
+    expect(first.value.items.map((e) => e.videoId)).toEqual(['B', 'C']);
+  });
+
+  it('does not read a number inside a title as a position', () => {
+    const items = [withDur('aaaaaaaaaaa', 'Unrelated talk', 100), withDur('bbbbbbbbbbb', 'Apollo #1', 200)];
+    const r = resolveReference(items, 'the one about Apollo #1');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.videoId).toBe('bbbbbbbbbbb');
+  });
+
+  it('does not read an ordinal inside a title as a position', () => {
+    const items = [
+      withDur('aaaaaaaaaaa', 'Unrelated talk', 100),
+      withDur('bbbbbbbbbbb', 'Cookies explained', 150),
+      withDur('ccccccccccc', '3rd party cookies', 200),
+    ];
+    const r = resolveReference(items, 'the one about 3rd party cookies');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.videoId).toBe('ccccccccccc');
+  });
+
+  it('accepts punctuation after an ordinal', () => {
+    const items = [withDur('aaaaaaaaaaa', 'a', 100), withDur('bbbbbbbbbbb', 'b', 200)];
+    for (const phrase of ['the 2nd.', 'the 2nd, please', '#2', '2nd one', 'number 2', 'the second one']) {
+      const r = resolveReference(items, phrase);
+      expect(r.ok, phrase).toBe(true);
+      if (r.ok) expect(r.value.videoId, phrase).toBe('bbbbbbbbbbb');
+    }
   });
 });

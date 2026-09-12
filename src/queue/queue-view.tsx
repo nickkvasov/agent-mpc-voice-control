@@ -3,11 +3,14 @@ import type { QueueState } from './queue.ts';
 /** FR-020: the queue is visible whenever it changes. */
 export function QueueView({
   queue,
-  onRemoveAt,
+  onRemoveEntry,
 }: {
   readonly queue: QueueState;
-  /** By POSITION: the same video may be queued twice, and removing one must not take both. */
-  readonly onRemoveAt: (index: number) => void;
+  /**
+   * By entryId, not position. The same video may be queued twice, and a button
+   * bound to an index removes whatever has since moved into that slot.
+   */
+  readonly onRemoveEntry: (entryId: string) => void;
 }) {
   return (
     <section data-testid="queue" style={{ margin: '0.5rem 0' }}>
@@ -16,9 +19,12 @@ export function QueueView({
         <p data-testid="queue-empty">Nothing queued.</p>
       ) : (
         <ol data-testid="queue-list">
-          {queue.items.map((id, i) => (
-            <li key={`${id}-${String(i)}`} data-testid="queue-item">
-              {id} <button type="button" onClick={() => onRemoveAt(i)}>Remove</button>
+          {queue.items.map((entry) => (
+            <li key={entry.entryId} data-testid="queue-item">
+              {entry.videoId}{' '}
+              <button type="button" onClick={() => onRemoveEntry(entry.entryId)}>
+                Remove
+              </button>
             </li>
           ))}
         </ol>

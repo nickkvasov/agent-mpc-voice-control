@@ -12,7 +12,7 @@ import { ResultsView } from './catalog/results-view.tsx';
 import { QueueView } from './queue/queue-view.tsx';
 import { EMPTY, narrowLocally, type ResultSet } from './catalog/results.ts';
 import { searchCatalog, type QuotaView } from './catalog/client.ts';
-import { add as queueAdd, removeAt, EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
+import { add as queueAdd, removeEntries, EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
 import { TOOL } from './vocab/tool-names.ts';
 import { pause, play, stop } from './player/tools/transport.ts';
 import { seek } from './player/tools/seek.ts';
@@ -252,14 +252,17 @@ export function App() {
       />
       <QueueView
         queue={queue}
-        onRemoveAt={(index) =>
+        onRemoveEntry={(entryId) => {
+          // The label names the video as it was when clicked; the mutation
+          // targets the entryId, which cannot drift if the queue changes first.
+          const videoId = queueRef.current.items.find((e) => e.entryId === entryId)?.videoId ?? 'unknown';
           queueAction(
-            `Removed queue position ${String(index + 1)} (${queueRef.current.items[index] ?? 'unknown'})`,
+            `Removed ${videoId} from the queue`,
             TOOL.queueRemove,
-            { index, videoId: queueRef.current.items[index] ?? null },
-            (cur) => removeAt(cur, index),
-          )
-        }
+            { entryId, videoId },
+            (cur) => removeEntries(cur, [entryId]),
+          );
+        }}
       />
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. */}

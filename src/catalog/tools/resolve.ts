@@ -28,24 +28,23 @@ export function resolveReference(items: readonly VideoReference[], reference: st
     return refuse(REFUSAL_REASON.ambiguousReference, 'No reference was given.');
   }
 
-  // A number only denotes a POSITION when the phrase says so. "the one about
-  // Apollo 1" used to resolve to result 1, silently playing the wrong video
-  // because any digit anywhere outranked the title (Gate C).
-  const ordinalWord = Object.keys(ORDINALS).find((w) => new RegExp(`\\b${w}\\b`).test(r));
-  // Explicit positional forms only. `#2`, `result #2`, `2nd`, `2nd one`,
-  // `the 2nd`, or a bare number — but never a digit that merely appears in a
-  // title, which used to outrank the title itself.
-  const positional =
-    /(?:^|\s)#\s*(\d{1,2})(?=\s|$)/.exec(r) ??
-    /(?:\b(?:number|result|item)\s*#?\s*)(\d{1,2})\b/.exec(r) ??
-    /(?:^|\s)(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)(?=\s|$)/.exec(r) ??
-    /^\s*(\d{1,2})\s*$/.exec(r);
+  // A reference is positional only when the WHOLE phrase denotes a position.
+  // Searching anywhere for a positional-looking token meant "the one about
+  // Apollo #1" and "the one about 3rd party cookies" both resolved by number
+  // and played the wrong video (Gate C). Trailing punctuation is stripped, so
+  // "the 2nd." and "the 2nd, please" still work.
+  const bare = r
+    .replace(/\b(?:the|one|item|result|number|please|just|play)\b/g, ' ')
+    // After the filler words, so interior punctuation ("the 2nd, please") goes
+    // too. `#` survives deliberately: it is part of "#2".
+    .replace(/[.,!?;:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const ordinalWord = Object.keys(ORDINALS).find((w) => bare === w);
+  const positional = /^#?\s*(\d{1,2})(?:st|nd|rd|th)?$/.exec(bare);
   const index =
-    ordinalWord !== undefined
-      ? ORDINALS[ordinalWord]
-      : positional !== null
-        ? Number(positional[1])
-        : undefined;
+    ordinalWord !== undefined ? ORDINALS[ordinalWord] : positional !== null ? Number(positional[1]) : undefined;
+
   if (index !== undefined) {
     const item = index === -1 ? items[items.length - 1] : items[index - 1];
     if (item === undefined) {
