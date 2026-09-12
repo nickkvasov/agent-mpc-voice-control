@@ -10,7 +10,8 @@ import { invokeRecorded } from './app/invoke.ts';
 import { CommandChain } from './app/command-chain.ts';
 import { ResultsView } from './catalog/results-view.tsx';
 import { RecordView } from './activity/record-view.tsx';
-import { undoEntry, invert } from './activity/undo.ts';
+import { undoEntry } from './activity/undo.ts';
+import { applyQueueUndo } from './queue/restore.ts';
 import type { DescribableEntry } from './activity/describe.ts';
 import { describeRecent } from './activity/describe.ts';
 import { QueueView } from './queue/queue-view.tsx';
@@ -35,21 +36,6 @@ function neighbourBefore(items: readonly { entryId: string }[], entryId: string)
 function neighbourAfter(items: readonly { entryId: string }[], entryId: string): string | null {
   const i = items.findIndex((e) => e.entryId === entryId);
   return i === -1 || i === items.length - 1 ? null : (items[i + 1]?.entryId ?? null);
-}
-
-/** Where a restored entry belongs, preferring anchors over a stale index. */
-export function restorePosition(
-  items: readonly { entryId: string }[],
-  anchors: { afterEntryId: string | null; beforeEntryId: string | null; index: number },
-): number {
-  if (anchors.afterEntryId === null) return 0;
-  const after = items.findIndex((e) => e.entryId === anchors.afterEntryId);
-  if (after !== -1) return after + 1;
-  if (anchors.beforeEntryId !== null) {
-    const before = items.findIndex((e) => e.entryId === anchors.beforeEntryId);
-    if (before !== -1) return before;
-  }
-  return Math.min(Math.max(anchors.index, 0), items.length);
 }
 
 /** Local calls and agent calls write to the same record (SC-006). */
@@ -325,23 +311,12 @@ export function App() {
             () =>
               undoEntry({ ...target, entryId: target.entryId, description: target.description }, entries, {
                 apply: (effect) => {
-                  const inverse = invert(effect);
-                  if (inverse.kind !== 'queue_occurrence') return false;
-                  const items = [...queueRef.current.items];
-                  if (inverse.added) {
-                    // Restoring a removal: put it back where it was.
-                    if (items.some((e) => e.entryId === inverse.entryId)) return false;
-                    const at = Math.min(Math.max(inverse.index, 0), items.length);
-                    items.splice(at, 0, { entryId: inverse.entryId, videoId: inverse.videoId });
-                  } else {
-                    const before = items.length;
-                    const kept = items.filter((e) => e.entryId !== inverse.entryId);
-                    if (kept.length === before) return false;
-                    items.length = 0;
-                    items.push(...kept);
-                  }
-                  queueRef.current = { ...queueRef.current, items };
-                  setQueue(queueRef.current);
+                  // One call. The restoration logic is a module function, not
+                  // inline here, so a test can drive the path the app runs.
+                  const next = applyQueueUndo(queueRef.current, effect);
+                  if (next === null) return false;
+                  queueRef.current = next;
+                  setQueue(next);
                   return true;
                 },
               }),

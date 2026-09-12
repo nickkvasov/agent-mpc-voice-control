@@ -126,6 +126,28 @@ including a throwaway script — is part of the commit and is covered by the gat
 or the gate covered nothing. Running four commands in a loop and reading four
 PASSes says nothing about a file that did not exist yet.
 
+### 2026-09-13 — a fix that was written, tested, and never called
+
+**What happened.** Phase 5's queue-restoration fix went through three Gate C
+rounds. Rounds 1 and 2 wrote `restorePosition`, exported it, and tested it —
+while `undoAction` went on computing the position from the stale index. The
+application behaved exactly as before. The suite was green because the tests
+reached the HELPER, and the helper reached nothing.
+
+Worse: my break-it check passed too. Reverting the app's line did not turn
+anything red, because the test imported the helper directly rather than
+exercising the path.
+
+**Root cause.** The logic lived inside a React callback, where a test cannot
+reach it. So "extract a helper and test it" felt like coverage while leaving the
+call site untested — and a call site is where behaviour lives.
+
+**Standing rule.** When a fix goes into a component callback, EXTRACT the
+behaviour into a module function and have the callback call it in one line. Then
+test that function and break it. If breaking the implementation does not turn a
+test red, the test is not covering the fix — re-check before believing a green
+break-it, because a break-it that passes proves nothing at all.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
