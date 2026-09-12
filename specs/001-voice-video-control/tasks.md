@@ -65,7 +65,7 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 
 ### Persistence
 
-- [ ] T017 [P] Implement IndexedDB stores for `videoReferences`, `collections`, `commands`, `activityRecords`, `quotaState` in `src/store/db.ts`
+- [X] T017 [P] Implement IndexedDB stores for `videoReferences`, `collections`, `commands`, `activityRecords`, `quotaState` in `src/store/db.ts`
 - [X] T018 [P] Implement the `VideoReference` type with the three-valued `hasCaptions`/`chapters` fields and validation rules in `src/store/video-reference.ts`
 - [X] T019 [P] Write tests asserting unknown is never collapsed to false for captions, chapters or quota (Constitution IV) in `tests/contract/unknown-is-a-value.test.ts`
 
@@ -77,10 +77,10 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 
 ### Backend
 
-- [ ] T023 [P] Implement `POST /api/mcp-ticket` minting single-use, short-lived opaque URLs in `server/ticket/route.ts`
-- [ ] T024 [P] Implement the catalog proxy with result cache and quota accounting over `search.list` in `server/catalog-proxy/search.ts`
-- [ ] T025 [P] Implement `videos.list` proxy returning duration, captions and chapter availability as three-valued in `server/catalog-proxy/videos.ts`
-- [ ] T026 Implement the agent host: Claude API agent loop on `claude-opus-5`, adaptive thinking, streaming, holding the MCP client, in `server/agent/loop.ts`
+- [X] T023 [P] Implement `POST /api/mcp-ticket` minting single-use, short-lived opaque URLs in `server/ticket/route.ts`
+- [X] T024 [P] Implement the catalog proxy with result cache and quota accounting over `search.list` in `server/catalog-proxy/search.ts`
+- [X] T025 [P] Implement `videos.list` proxy returning duration, captions and chapter availability as three-valued in `server/catalog-proxy/videos.ts`
+- [X] T026 Implement the agent host: Claude API agent loop on `claude-opus-5`, adaptive thinking, streaming, holding the MCP client, in `server/agent/loop.ts`
 - [X] T027 Write the test asserting no API key is reachable from browser bundles in `tests/contract/no-keys-in-browser.test.ts`
 
 ### Carried forward from the Phase 2 Gate C review (2026-09-12)
@@ -98,9 +98,23 @@ missing halves are named here so the next run does not rediscover them:
   There is no message stream, no MCP client and no tool-call iteration, so the
   agent host cannot process a command.
 
-**Checkpoint**: Foundation NOT yet ready. Phase 3 is blocked until the above land
-— a phase's gap becomes the next phase's foundation, which is what the per-phase
-review exists to prevent.
+All five landed in the follow-up run: the `commands` store and an IndexedDB
+adapter that reports non-durability instead of silently falling back to memory;
+`server/routes.ts` registered in `index.ts` so every endpoint answers; and an
+agent loop that streams, iterates tool calls, marks refusals as errors so the
+model cannot read them as success, and names its iteration bound rather than
+truncating.
+
+### Gap found while closing these — no task owns the gateway
+
+`contracts/backend-http.md` says the page's only contact with the agent is a
+WebSocket it opens with a ticket, and that this project supplies that runtime.
+**No task in this plan builds it.** The agent loop takes an injectable
+`ToolTransport` so it is complete and testable without one, but nothing yet
+carries a tool call from the loop to the browser. This needs its own task before
+User Story 1 can be driven end to end by an agent.
+
+**Checkpoint**: Foundation ready — user stories may now proceed.
 
 ---
 

@@ -11,9 +11,30 @@ import Anthropic from '@anthropic-ai/sdk';
  */
 export const AGENT_MODEL = 'claude-opus-5';
 
+/**
+ * The page's tool surface, as the loop sees it. Deliberately an interface: the
+ * loop must be drivable without a socket so its iteration can be tested, and
+ * the transport that carries these calls to the browser is a separate concern.
+ */
+export interface ToolTransport {
+  /** Tools the page declares RIGHT NOW. They exist only while their UI is on screen. */
+  listTools(): Promise<readonly ToolDescriptor[]>;
+  callTool(name: string, input: unknown): Promise<ToolCallOutcome>;
+}
+
+export interface ToolDescriptor {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+}
+
+export type ToolCallOutcome =
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly reason: string; readonly detail: string };
+
 export interface AgentHostConfig {
   readonly apiKey: string;
-  /** Kept out of the constructor so tests can drive the loop without a network. */
+  /** Kept injectable so tests can drive the loop without a network. */
   readonly client?: Anthropic;
 }
 
@@ -21,15 +42,95 @@ export function createClient(config: AgentHostConfig): Anthropic {
   if (config.client !== undefined) return config.client;
   if (config.apiKey.trim() === '') {
     // An unkeyed client would fail at the first call, far from the cause, and
-    // the page would show "assistant unavailable" with no reason anyone can act
-    // on (IMMUNE-U).
+    // the page would show "assistant unavailable" with no actionable reason.
     throw new Error('ANTHROPIC_API_KEY is empty; the agent host cannot start');
   }
   return new Anthropic({ apiKey: config.apiKey });
 }
 
-export const AGENT_REQUEST_DEFAULTS = {
-  model: AGENT_MODEL,
-  max_tokens: 8192,
-  thinking: { type: 'adaptive' },
-} as const;
+export const SYSTEM_PROMPT = [
+  'You drive a YouTube video application by calling the tools it declares.',
+  'The application owns its state; you never hold a copy of it.',
+  'Call a tool rather than describing what the person should click.',
+  'A tool that returns ok:false has refused. Report the stated reason; never retry it as though it had not refused, and never substitute a different action for the one asked for.',
+  'Tools exist only while the part of the interface that declares them is on screen. If the tool you need is absent, say so and name what the person would need to open.',
+].join(' ');
+
+export interface AgentTurnResult {
+  readonly text: string;
+  readonly toolCalls: readonly { readonly name: string; readonly outcome: ToolCallOutcome }[];
+  readonly stopReason: string | null;
+}
+
+const MAX_ITERATIONS = 8;
+
+/**
+ * One conversational turn: call the model, run whatever tools it asks for, feed
+ * the results back, and repeat until it stops asking.
+ *
+ * Bounded deliberately. An unbounded loop against a model that keeps calling
+ * tools is a runaway spend and a page being driven with nobody watching; hitting
+ * the bound is reported rather than hidden.
+ */
+export async function runAgentTurn(
+  client: Anthropic,
+  transport: ToolTransport,
+  commandText: string,
+): Promise<AgentTurnResult> {
+  const declared = await transport.listTools();
+  const tools = declared.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
+  }));
+
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: commandText }];
+  const toolCalls: { name: string; outcome: ToolCallOutcome }[] = [];
+  let text = '';
+
+  for (let i = 0; i < MAX_ITERATIONS; i += 1) {
+    const stream = client.messages.stream({
+      model: AGENT_MODEL,
+      max_tokens: 8192,
+      thinking: { type: 'adaptive' },
+      system: SYSTEM_PROMPT,
+      tools,
+      messages,
+    });
+    const response = await stream.finalMessage();
+
+    text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+
+    const uses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+    if (uses.length === 0) return { text, toolCalls, stopReason: response.stop_reason };
+
+    messages.push({ role: 'assistant', content: response.content });
+
+    // Parallel tool results must go back in ONE user message; splitting them
+    // trains the model to stop making parallel calls.
+    const results: Anthropic.ToolResultBlockParam[] = [];
+    for (const use of uses) {
+      const outcome = await transport.callTool(use.name, use.input);
+      toolCalls.push({ name: use.name, outcome });
+      results.push({
+        type: 'tool_result',
+        tool_use_id: use.id,
+        content: JSON.stringify(outcome),
+        // A refusal is surfaced as an error so the model cannot read it as success.
+        is_error: !outcome.ok,
+      });
+    }
+    messages.push({ role: 'user', content: results });
+  }
+
+  return {
+    text,
+    toolCalls,
+    // Named, not silently truncated: the caller must be able to tell a finished
+    // turn from one that hit the bound (IMMUNE-U).
+    stopReason: 'iteration_limit',
+  };
+}

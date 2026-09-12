@@ -1,0 +1,83 @@
+import { describe, expect, it, vi } from 'vitest';
+import type Anthropic from '@anthropic-ai/sdk';
+import { runAgentTurn, createClient, AGENT_MODEL, type ToolTransport } from '../../server/agent/loop.ts';
+
+/** A client that replays scripted responses; no network, no key. */
+function fakeClient(responses: Anthropic.Message[]): { client: Anthropic; calls: unknown[] } {
+  const calls: unknown[] = [];
+  let i = 0;
+  const client = {
+    messages: {
+      stream: (params: unknown) => {
+        calls.push(params);
+        const r = responses[i++];
+        return { finalMessage: async () => r };
+      },
+    },
+  } as unknown as Anthropic;
+  return { client, calls };
+}
+
+const say = (text: string): Anthropic.Message =>
+  ({ content: [{ type: 'text', text }], stop_reason: 'end_turn' }) as Anthropic.Message;
+
+const use = (name: string, input: unknown): Anthropic.Message =>
+  ({ content: [{ type: 'tool_use', id: `tu_${name}`, name, input }], stop_reason: 'tool_use' }) as Anthropic.Message;
+
+const transport = (outcome: Awaited<ReturnType<ToolTransport['callTool']>>): ToolTransport & { called: string[] } => {
+  const called: string[] = [];
+  return {
+    called,
+    listTools: async () => [{ name: 'playback.pause', description: 'Pause', inputSchema: { type: 'object' } }],
+    callTool: async (n) => {
+      called.push(n);
+      return outcome;
+    },
+  };
+};
+
+describe('agent turn', () => {
+  it('runs a tool the model asks for and feeds the result back', async () => {
+    const { client, calls } = fakeClient([use('playback.pause', {}), say('Paused.')]);
+    const t = transport({ ok: true, value: { paused: true } });
+    const r = await runAgentTurn(client, t, 'pause');
+    expect(t.called).toEqual(['playback.pause']);
+    expect(r.text).toBe('Paused.');
+    expect(r.toolCalls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('uses the configured model with adaptive thinking', async () => {
+    const { client, calls } = fakeClient([say('ok')]);
+    await runAgentTurn(client, transport({ ok: true, value: null }), 'hi');
+    const p = calls[0] as { model: string; thinking: { type: string } };
+    expect(p.model).toBe(AGENT_MODEL);
+    expect(p.thinking.type).toBe('adaptive');
+  });
+
+  it('marks a refusal as an error so the model cannot read it as success', async () => {
+    const { client, calls } = fakeClient([use('playback.pause', {}), say('Nothing is playing.')]);
+    await runAgentTurn(client, transport({ ok: false, reason: 'not_playing', detail: 'Nothing is playing.' }), 'pause');
+    const second = calls[1] as { messages: { role: string; content: unknown }[] };
+    const results = second.messages.at(-1)?.content as { is_error: boolean }[];
+    expect(results[0]?.is_error).toBe(true);
+  });
+
+  it('reports hitting the iteration bound rather than truncating silently', async () => {
+    const { client } = fakeClient(Array.from({ length: 12 }, () => use('playback.pause', {})));
+    const r = await runAgentTurn(client, transport({ ok: true, value: null }), 'loop');
+    expect(r.stopReason).toBe('iteration_limit');
+  });
+
+  it('refuses to build a client with no key rather than failing later', () => {
+    expect(() => createClient({ apiKey: '  ' })).toThrow(/cannot start/);
+  });
+
+  it('asks the page which tools exist right now, every turn', async () => {
+    const { client } = fakeClient([say('ok')]);
+    const t = transport({ ok: true, value: null });
+    const spy = vi.spyOn(t, 'listTools');
+    await runAgentTurn(client, t, 'hi');
+    expect(spy).toHaveBeenCalledOnce();
+  });
+});
