@@ -57,7 +57,7 @@
       {
         "tool": "playback.playVideo",
         "input": {
-          "videoId": "shortthree1"
+          "videoId": "{{lastResult:value.videoId}}"
         }
       },
       {
