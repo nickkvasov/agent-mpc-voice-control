@@ -182,6 +182,11 @@ export function App() {
       setStorageDurable(outcome.durable);
       const saved = await outcome.stores.collections.all();
       if (saved.length > 0) setCollections({ items: [...saved] as Collection[] });
+      // FR-041: retained history must be VISIBLE and clearable. Starting at
+      // zero told a person nothing was stored while their transcripts were
+      // sitting in IndexedDB, and disabled the button that would clear them.
+      const storedCommands = await outcome.stores.commands.all();
+      setCommandCount(storedCommands.length);
     });
     return () => {
       live = false;
@@ -229,24 +234,34 @@ export function App() {
   });
 
   const run = useCallback(
-    async (text: string) => {
+    async (text: string, modality: 'voice' | 'text') => {
       setHeard(text);
+      const receivedAt = Date.now();
       const m = matchPlaybackCommand(text);
-      void stores.current?.stores.commands
-        .append({
-          commandId: `cmd${String(Date.now())}`,
-          modality: 'text',
-          rawText: text,
-          interpretation: m.matched ? m.match.interpretation : 'not understood',
-          route: m.matched ? 'local_matcher' : 'agent',
-          receivedAt: Date.now(),
-          outcome: m.matched ? 'applied' : 'refused',
-          refusalReason: m.matched ? null : 'no_match',
-        })
-        .then(async () => {
-          const all = await stores.current?.stores.commands.all();
-          setCommandCount(all?.length ?? 0);
-        });
+      /**
+       * Written AFTER the handler runs, with what actually happened.
+       *
+       * Appending on match recorded "applied" for commands the handler then
+       * refused — `pause` with nothing playing, for instance — so the stored
+       * history contradicted both the screen and the activity record (Gate C).
+       */
+      const persist = (outcome: 'applied' | 'refused', refusalReason: string | null): void => {
+        void stores.current?.stores.commands
+          .append({
+            commandId: `cmd${String(receivedAt)}`,
+            modality,
+            rawText: text,
+            interpretation: m.matched ? m.match.interpretation : 'not understood',
+            route: m.matched ? 'local_matcher' : 'agent',
+            receivedAt,
+            outcome,
+            refusalReason,
+          })
+          .then(async () => {
+            const all = await stores.current?.stores.commands.all();
+            setCommandCount(all?.length ?? 0);
+          });
+      };
       if (!m.matched) {
         // The matcher never guesses. With no agent connected there is nowhere
         // to fall through to, so this is refused with a reason (FR-034/FR-037).
@@ -256,6 +271,7 @@ export function App() {
         setOutcome(
           'Not a playback command, and the assistant is not connected, so nothing was done. Everything here still works by hand.',
         );
+        persist('refused', 'no_match');
         return;
       }
       setInterpretation(m.match.interpretation);
@@ -281,6 +297,7 @@ export function App() {
       // as an agent call does.
       const r = await invokeRecorded(recorder, m.match.tool, i, m.match.interpretation, call);
       setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
+      persist(isRefusal(r) ? 'refused' : 'applied', isRefusal(r) ? r.reason : null);
       refreshActivity();
       bump();
     },
@@ -288,8 +305,8 @@ export function App() {
   );
 
   const enqueue = useCallback(
-    (resolveText: () => Promise<string>) => {
-      chain.current?.enqueue(resolveText, run);
+    (resolveText: () => Promise<string>, modality: 'voice' | 'text') => {
+      chain.current?.enqueue(resolveText, (text) => run(text, modality));
     },
     [run],
   );
@@ -482,8 +499,8 @@ export function App() {
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
       <h1>Voice Video Control</h1>
       <ConnectionStatus state={connection} reason={connection === 'unavailable' ? connectionReason : null} />
-      <PushToTalk onUtterance={(pending) => enqueue(() => pending)} onAvailabilityChange={setVoiceAvailable} />
-      <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t))} />
+      <PushToTalk onUtterance={(pending) => enqueue(() => pending, 'voice')} onAvailabilityChange={setVoiceAvailable} />
+      <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t), 'text')} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
       <section data-testid="discovery" style={{ margin: '0.5rem 0' }}>
         <form
@@ -752,7 +769,7 @@ export function App() {
         volume={p.getVolume()}
         muted={p.isMuted()}
         captionsTrack={track === '' ? null : track}
-        onCommand={(t) => enqueue(() => Promise.resolve(t))}
+        onCommand={(t) => enqueue(() => Promise.resolve(t), 'text')}
       />
       <PrivacyDisclosure voiceAvailable={voiceAvailable} assistantConnected={connection === 'connected'} />
     </main>
