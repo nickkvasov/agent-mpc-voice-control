@@ -8,7 +8,7 @@ import { EMPTY_COLLECTIONS, type CollectionsState } from '../../src/curation/col
 import { applyCollectionUndo } from '../../src/curation/restore.ts';
 import { makeVideoReference, type VideoReference } from '../../src/store/video-reference.ts';
 import { ok } from '../../src/mcp/result.ts';
-import { add as queueAdd, EMPTY_QUEUE, type QueueState } from '../../src/queue/queue.ts';
+import { add as queueAdd, EMPTY_QUEUE, sorted, type QueueState } from '../../src/queue/queue.ts';
 import type { EmbeddedPlayer } from '../../src/player/player.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 import { TOOL } from '../../src/vocab/tool-names.ts';
@@ -254,6 +254,46 @@ describe('Phase 9 Gate C findings, each reproduced before it was fixed', () => {
     expect(asked.at(-1)).toContain('6 videos');
     expect(r.ok).toBe(true);
     for (const id of six) expect(tagsOf(id)).toEqual(['onboarding']);
+  });
+});
+
+describe('Phase 10 Gate C round 2: playVideo resets the queue cursor in order', () => {
+  it('a "next" insertion issued after a slow external play waits for it, and goes where the reset cursor says', async () => {
+    const V = { A: 'AAAAAAAAAAA', B: 'BBBBBBBBBBB', C: 'CCCCCCCCCCC', X: 'XXXXXXXXXXX' };
+    let release!: () => void;
+    let reported: number | null = null;
+    const held = new Promise<void>((r) => { release = r; });
+    const player = {
+      loadVideoById: () => { reported = null; void held.then(() => { reported = 1; }); },
+      loadedVideoId: () => V.X, autoplayBlocked: () => false, lastError: () => null,
+      stateSinceRequest: () => reported, getPlayerState: () => reported ?? 5,
+      getCurrentTime: () => 0, getDuration: () => 600,
+    } as unknown as EmbeddedPlayer;
+    const recorder = new ActivityRecorder(createInMemoryActivityStore());
+    const commands = new CommandRegistry();
+    const scheduler = new DomainScheduler(commands);
+    const two = queueAdd(EMPTY_QUEUE, [V.A, V.B]);
+    if (!two.ok) throw new Error('setup');
+    let queue: QueueState = { ...two.value, currentEntryId: two.value.items[0]?.entryId ?? null };
+    const actions = createToolActions({
+      recorder, scheduler, player: () => player, markUnavailable: () => {},
+      playback: () => ({ adPlaying: false, hasVideo: true }),
+      results: { get: () => EMPTY, set: () => {} }, videos: () => [],
+      annotations: { get: () => new Map(), annotate: () => {}, replace: () => {} },
+      queue: { get: () => queue, set: (n) => { queue = n; } },
+      collections: { get: () => EMPTY_COLLECTIONS, commit: () => {}, remember: () => {}, deleted: () => undefined },
+      quota: { get: () => ({ searchCallsRemaining: null, resetsAt: null }), set: () => {} },
+      restore: { queue: () => null, annotations: () => null, collections: () => null },
+      ask: () => null, changed: () => {},
+    });
+    const playing = actions[TOOL.playbackPlayVideo](commands.issue('manual'), { videoId: V.X });
+    const adding = actions[TOOL.queueAdd](commands.issue('manual'), { videoIds: [V.C], position: 'next' });
+    await new Promise((r) => setTimeout(r, 30));
+    release();
+    await Promise.all([playing, adding]);
+    // X was played from outside the queue, so the cursor was cleared BEFORE C was
+    // inserted: C goes to the front, not after A.
+    expect(sorted(queue.items).map((e) => e.videoId)).toEqual([V.C, V.A, V.B]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { REFUSAL_REASON } from '../vocab/refusal-reasons.ts';
-import { ok, refuse, type ToolResult } from '../mcp/result.ts';
+import { ok, refuse, type ToolRefusal, type ToolResult } from '../mcp/result.ts';
 import { BULK_THRESHOLD } from '../vocab/tool-names.ts';
 
 /**
@@ -58,7 +58,12 @@ let floor = 0;
 
 export function newEntry(videoId: string, order?: number): QueueEntry {
   seq += 1;
-  if (order !== undefined) return { entryId: `q${String(seq)}`, videoId, order };
+  if (order !== undefined) {
+    // An explicit key above the append counter must move it, or a later append
+    // lands before this entry (Phase 10 Gate C round 2).
+    ceiling = Math.max(ceiling, Math.ceil(order));
+    return { entryId: `q${String(seq)}`, videoId, order };
+  }
   ceiling += 1;
   return { entryId: `q${String(seq)}`, videoId, order: ceiling };
 }
@@ -120,6 +125,7 @@ export function add(
         // "Next" means after what is playing, not the front of the queue. Keys
         // are spread strictly between the current entry and the one after it.
         : spreadAfter(ordered, at, videoIds);
+  if (!Array.isArray(entries)) return entries;
   return ok({ ...q, items: sorted([...q.items, ...entries]) });
 }
 
@@ -224,10 +230,23 @@ export function clear(q: QueueState, confirmedCount?: number): ToolResult<QueueS
   return ok({ ...q, items: [] });
 }
 
-function spreadAfter(ordered: readonly QueueEntry[], at: number, videoIds: readonly string[]): QueueEntry[] {
+/** The smallest gap between keys this will allocate, to stay clear of float precision. */
+const MIN_KEY_GAP = 1e-9;
+
+function spreadAfter(ordered: readonly QueueEntry[], at: number, videoIds: readonly string[]): QueueEntry[] | ToolRefusal {
   const low = (ordered[at] as QueueEntry).order;
   const following = ordered[at + 1];
   const high = following === undefined ? low + 1 : following.order;
-  return videoIds.map((id, i) => newEntry(id, low + ((high - low) * (i + 1)) / (videoIds.length + 1)));
+  const gap = (high - low) / (videoIds.length + 1);
+  if (!(gap > MIN_KEY_GAP)) {
+    // Tied neighbours — possible after an undo restores an entry at its old key.
+    // A key between them does not exist; placing it anyway would silently put the
+    // video in the wrong place. The same refusal `reorder` gives (Gate C round 2).
+    return refuse(
+      REFUSAL_REASON.effectUnverifiable,
+      'Two queue entries share a position right after the current video, so there is no place to put this between them. Remove or re-add one of them first, or add it to the end.',
+    );
+  }
+  return videoIds.map((id, i) => newEntry(id, low + gap * (i + 1)));
 }
 

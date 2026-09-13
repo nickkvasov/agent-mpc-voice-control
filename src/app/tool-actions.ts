@@ -192,15 +192,21 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
           ? next
           : refuse(next.reason, `${next.detail} Skipped as unplayable: ${skippedNow.map((x) => `${x.videoId} (${x.reason})`).join(', ')}.`);
       }
+      // Skips `step` already knew about are kept, whatever happens to this candidate (round 2).
+      for (const known of next.value.skipped) skippedNow.push({ videoId: known.videoId, reason: known.reason });
       const index = entries.findIndex((e, i) => e.videoId === next.value.videoId && (direction === 1 ? i > at : i < at));
       const played = await loadAndConfirm(p, next.value.videoId);
-      if (played.ok) {
-        deps.queue.set({ ...deps.queue.get(), currentEntryId: entries[index]?.entryId ?? null });
-        return ok({ ...played.value, skipped: [...next.value.skipped, ...skippedNow] });
+      if (!played.ok && played.reason === REFUSAL_REASON.unavailableVideo) {
+        skippedNow.push({ videoId: next.value.videoId, reason: played.detail });
+        at = index;
+        continue;
       }
-      if (played.reason !== REFUSAL_REASON.unavailableVideo) return played;
-      skippedNow.push({ videoId: next.value.videoId, reason: played.detail });
-      at = index;
+      // The player now holds this entry's video — playing, or waiting for a press
+      // after blocked autoplay — so the cursor moves to it either way. Left behind,
+      // pressing play and then "next" reloaded the same video (round 2).
+      deps.queue.set({ ...deps.queue.get(), currentEntryId: entries[index]?.entryId ?? null });
+      if (!played.ok) return played;
+      return ok({ ...played.value, skipped: skippedNow });
     }
   };
 

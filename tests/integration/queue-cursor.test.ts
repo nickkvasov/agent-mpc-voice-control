@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { __resetQueueIds, add, EMPTY_QUEUE, sorted } from '../../src/queue/queue.ts';
+import { __resetQueueIds, add, EMPTY_QUEUE, newEntry, sorted } from '../../src/queue/queue.ts';
 
 /** Phase 10 Gate C round 1: "next" means after what is playing, not the front of the queue. */
 describe('queue add at position "next"', () => {
@@ -31,4 +31,30 @@ describe('queue add at position "next"', () => {
     const appended = add(next.value, ['DDDDDDDDDDD']);
     expect(appended.ok && sorted(appended.value.items).map((e) => e.videoId)).toEqual(['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC', 'DDDDDDDDDDD']);
   });
+
+  it('[round 2] tail insertions keep the append counter ahead, so a later append still lands last', () => {
+    __resetQueueIds();
+    let q = add(EMPTY_QUEUE, ['AAAAAAAAAAA']);
+    for (const id of ['BBBBBBBBBBB', 'CCCCCCCCCCC', 'DDDDDDDDDDD']) {
+      if (!q.ok) throw new Error('setup');
+      const last = sorted(q.value.items).at(-1)?.entryId ?? null;
+      q = add({ ...q.value, currentEntryId: last }, [id], 'next');
+    }
+    if (!q.ok) throw new Error('setup');
+    const appended = add(q.value, ['EEEEEEEEEEE']);
+    expect(appended.ok && sorted(appended.value.items).map((e) => e.videoId[0])).toEqual(['A', 'B', 'C', 'D', 'E']);
+  });
+
+  it('[round 2] refuses a "next" insertion when the neighbouring keys leave no room, rather than misplacing it', () => {
+    __resetQueueIds();
+    const q = {
+      currentEntryId: 'q1',
+      items: [newEntry('AAAAAAAAAAA', 1), newEntry('CCCCCCCCCCC', 1.5), newEntry('DDDDDDDDDDD', 1.5)],
+    };
+    const current = { ...q, currentEntryId: q.items[1]?.entryId ?? null };
+    const r = add(current, ['EEEEEEEEEEE'], 'next');
+    // The same reason `reorder` gives for the same tie.
+    expect(r.ok ? '' : r.reason).toBe('effect_unverifiable');
+  });
 });
+

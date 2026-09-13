@@ -160,3 +160,34 @@ test('[P2] a player error is cleared when another video then plays, however it w
   await expect(page.locator('[data-testid="player-status"]')).toHaveCount(0);
 });
 
+// ── Phase 10 Gate C round 2 ────────────────────────────────────────────────
+test('[round 2] after a blocked "next", pressing play on the video keeps the queue in step', async ({ page }) => {
+  await showResults(page, [A, B, C]);
+  for (const v of ['Video A', 'Video B', 'Video C']) await result(page, v).locator('text=Queue').click();
+  await send(page, 'next');
+  await expect(nowPlaying(page)).toContainText('Video A');
+  await fake.set(page, { blockAutoplay: true });
+  await send(page, 'next');
+  await expect(outcome(page)).toContainText('blocked');
+  await expect(nowPlaying(page)).toContainText('Video B');
+  // The person does what the refusal said: press play on the video itself.
+  await fake.set(page, { blockAutoplay: false });
+  await page.evaluate(() => (window as unknown as { __fakeYT: { players: { playVideo(): void }[] } }).__fakeYT.players[0]?.playVideo());
+  await expect(state(page)).toContainText('playing');
+  await send(page, 'next');
+  await expect(nowPlaying(page)).toContainText('Video C');
+});
+
+test('[round 2] every skipped video is reported, known and newly discovered alike', async ({ page }) => {
+  await showResults(page, [A, B, C]);
+  // A becomes known-unavailable by being played once.
+  await fake.set(page, { errorFor: { [A.videoId]: 101, [B.videoId]: 101 } });
+  await result(page, 'Video A').locator('text=Play').click();
+  await expect(result(page, 'Video A').locator('[data-testid="result-unavailable"]')).toBeVisible();
+  for (const v of ['Video A', 'Video B', 'Video C']) await result(page, v).locator('text=Queue').click();
+  await send(page, 'next');
+  await expect(nowPlaying(page)).toContainText('Video C');
+  await expect(outcome(page)).toContainText('AAAAAAAAAAA');
+  await expect(outcome(page)).toContainText('BBBBBBBBBBB');
+});
+

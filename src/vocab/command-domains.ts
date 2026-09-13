@@ -38,7 +38,8 @@ const NONE = [] as const;
  */
 export const TOOL_DOMAINS: Readonly<Record<ToolName, Declared>> = {
   [TOOL.playbackPlay]: P,
-  [TOOL.playbackPlayVideo]: P,
+  // It also clears the queue's cursor, so it is ordered against queue changes too (Gate C round 2).
+  [TOOL.playbackPlayVideo]: [DOMAIN.playback, DOMAIN.queue],
   [TOOL.playbackPause]: P,
   [TOOL.playbackStop]: P,
   [TOOL.playbackSeek]: P,
