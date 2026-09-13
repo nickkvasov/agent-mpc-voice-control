@@ -295,7 +295,20 @@ export function App() {
       };
       // Through the recorded boundary, so a local command leaves an entry just
       // as an agent call does.
-      const r = await invokeRecorded(recorder, m.match.tool, i, m.match.interpretation, call);
+      let r: ToolResult<unknown>;
+      try {
+        r = await invokeRecorded(recorder, m.match.tool, i, m.match.interpretation, call);
+      } catch (cause) {
+        // invokeRecorded records the failure and RETHROWS. Without this the
+        // persist below was skipped entirely, so a command whose handler threw
+        // vanished from retained history on the next reload — the negative
+        // evidence IMMUNE-E requires, kept only in memory (Gate C).
+        persist('refused', 'handler_threw');
+        setOutcome(`That command failed: ${String(cause)}`);
+        refreshActivity();
+        bump();
+        throw cause;
+      }
       setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
       persist(isRefusal(r) ? 'refused' : 'applied', isRefusal(r) ? r.reason : null);
       refreshActivity();
