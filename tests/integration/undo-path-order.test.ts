@@ -16,7 +16,7 @@ import {
  */
 const q = (...t: [string, string, number][]): QueueState => ({
   items: t.map(([entryId, videoId, order]) => ({ entryId, videoId, order })),
-  currentVideoId: null,
+  currentEntryId: null,
 });
 
 const removal = (entryId: string, videoId: string, order: number): Effect =>
@@ -149,7 +149,7 @@ describe('Gate C round 6: reorder edge cases', () => {
         { entryId: 'q2', videoId: 'B', order: 2 },
         { entryId: 'q3', videoId: 'D', order: 2 },
       ],
-      currentVideoId: null,
+      currentEntryId: null,
     };
     // Between the two entries that share key 2 — the position with no value
     // available between its neighbours.

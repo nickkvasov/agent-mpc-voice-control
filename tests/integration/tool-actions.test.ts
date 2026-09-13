@@ -25,7 +25,7 @@ function slowPlayer() {
     setVolume: () => {}, getVolume: () => 50, mute: () => {}, unMute: () => {}, isMuted: () => false,
     getPlayerState: () => state, loadModule: () => {}, unloadModule: () => {},
     setOption: () => {}, getOption: () => undefined,
-    loadVideoById: () => {}, loadedVideoId: () => 'M7lc1UVf-VE', autoplayBlocked: () => false, lastError: () => null,
+    loadVideoById: () => {}, loadedVideoId: () => 'M7lc1UVf-VE', autoplayBlocked: () => false, lastError: () => null, stateSinceRequest: () => null,
   } as unknown as EmbeddedPlayer;
   return { p, releaseSeek: () => pendingSeeks.splice(0).forEach((f) => { f(); }) };
 }

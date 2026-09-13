@@ -52,8 +52,22 @@ export async function loadVideo(page: Page, video = VIDEO): Promise<void> {
 
 export const fake = {
   /** Waits for the page to have loaded the (fake) API, then steers it. */
-  set: async (page: Page, knobs: Partial<{ blockAutoplay: boolean; dropNextStateChange: boolean; errorOnLoad: number | null }>) => {
+  set: async (page: Page, knobs: Partial<{ blockAutoplay: boolean; dropNextStateChange: boolean; errorOnLoad: number | null; errorFor: Record<string, number> }>) => {
     await page.waitForFunction(() => (window as unknown as { __fakeYT?: object }).__fakeYT !== undefined);
     await page.evaluate((k) => { Object.assign((window as unknown as { __fakeYT: object }).__fakeYT, k); }, knobs);
   },
 };
+
+/** Stubs the catalog with these videos and runs one search, so their Play/Queue buttons exist. */
+export async function showResults(page: Page, videos: readonly { videoId: string; title: string }[]): Promise<void> {
+  await playerReady(page);
+  await page.route('**/api/catalog/search**', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, results: videos.map((v) => ({ ...v, channelTitle: 'c', publishedAt: 0, durationSeconds: 600 })), criteriaApplied: { query: 'x' }, fromCache: false, quota: { searchCallsRemaining: 50, resetsAt: 0 } }),
+    }));
+  await page.fill('[data-testid="search-input"]', 'several');
+  await page.click('[data-testid="search-submit"]');
+  await expect(page.locator('[data-testid="result-item"]')).toHaveCount(videos.length);
+}
+

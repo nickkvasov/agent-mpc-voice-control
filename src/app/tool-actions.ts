@@ -25,7 +25,6 @@ import { refuseBlocked } from '../player/tools/transport.ts';
 import { describePlayerError } from '../player/player-errors.ts';
 import { settleUntil } from '../player/readback.ts';
 import { step } from '../player/tools/navigation.ts';
-import { PLAYER_STATE } from '../vocab/player-states.ts';
 import { AVAILABILITY, type Availability } from '../vocab/availability.ts';
 import { add as queueAdd, clear as queueClear, removeEntries, removeVideo, reorder, sorted, type QueueState } from '../queue/queue.ts';
 import { UNKNOWN, type VideoReference } from '../store/video-reference.ts';
@@ -132,6 +131,8 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
   const countedAbove = (count: number, question: string): number | undefined =>
     count > BULK_THRESHOLD && resolveCountedConfirmation(deps.ask(question), count) === 'confirmed' ? count : undefined;
 
+  /** YouTube's code for a REPORTED playing state. */
+  const PLAYING_CODE = 1;
   /** How long a video may take to load and start, over a real network. */
   const LOAD_TIMEOUT_MS = 5000;
 
@@ -146,10 +147,10 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
   /** Loads a video and reports what the player confirmed — playing, blocked, or why it cannot play. */
   const loadAndConfirm = async (p: EmbeddedPlayer, videoId: string) => {
     p.loadVideoById(videoId);
-    await settleUntil(
-      () => playerState(p) === PLAYER_STATE.playing || p.autoplayBlocked() || p.lastError() !== null,
-      LOAD_TIMEOUT_MS,
-    );
+    // Only a state REPORTED after this request counts: the player still says
+    // "playing" for the previous video until the new one reports (Gate C).
+    const confirmedPlaying = (): boolean => p.stateSinceRequest() === PLAYING_CODE;
+    await settleUntil(() => confirmedPlaying() || p.autoplayBlocked() || p.lastError() !== null, LOAD_TIMEOUT_MS);
     const error = p.lastError();
     if (error !== null) {
       const described = describePlayerError(error.code);
@@ -160,26 +161,47 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       );
     }
     if (p.autoplayBlocked()) return refuseBlocked();
-    if (playerState(p) !== PLAYER_STATE.playing) {
-      return refuse(REFUSAL_REASON.refusedByPlayer, `Asked the player to play ${videoId}; after ${String(LOAD_TIMEOUT_MS / 1000)} seconds it is still ${playerState(p)}.`);
+    if (!confirmedPlaying()) {
+      return refuse(REFUSAL_REASON.refusedByPlayer, `Asked the player to play ${videoId}; after ${String(LOAD_TIMEOUT_MS / 1000)} seconds it has not reported playing (it says ${playerState(p)}).`);
     }
     return ok({ videoId, state: playerState(p) });
   };
 
   const titleOf = (videoId: string): string => deps.videos().find((v) => v.videoId === videoId)?.title ?? videoId;
 
+  /**
+   * Walks the queue from its cursor — an entry, never a video id, since a video
+   * may be queued twice — and keeps going past a video that turns out to be
+   * unavailable, stating each one skipped. Anything else that stops playback
+   * (blocked autoplay, an origin fault) stops navigation too (Gate C).
+   */
   const navigate = (direction: 1 | -1) => async (p: EmbeddedPlayer) => {
-    const items = sorted(deps.queue.get().items).map((e) => ({
-      videoId: e.videoId,
-      title: titleOf(e.videoId),
-      availability: deps.videos().find((v) => v.videoId === e.videoId)?.availability ?? AVAILABILITY.unknown,
-    }));
-    const current = p.loadedVideoId();
-    const at = current === null ? -1 : items.findIndex((i) => i.videoId === current);
-    const next = step(items, direction === 1 ? at : (at === -1 ? items.length : at), direction);
-    if (!next.ok) return next;
-    const played = await loadAndConfirm(p, next.value.videoId);
-    return played.ok ? ok({ ...played.value, skipped: next.value.skipped }) : played;
+    const entries = sorted(deps.queue.get().items);
+    const skippedNow: { videoId: string; reason: string }[] = [];
+    let at = entries.findIndex((e) => e.entryId === deps.queue.get().currentEntryId);
+    if (at === -1 && direction === -1) at = entries.length;
+    for (;;) {
+      const items = entries.map((e) => ({
+        videoId: e.videoId,
+        title: titleOf(e.videoId),
+        availability: deps.videos().find((v) => v.videoId === e.videoId)?.availability ?? AVAILABILITY.unknown,
+      }));
+      const next = step(items, at, direction);
+      if (!next.ok) {
+        return skippedNow.length === 0
+          ? next
+          : refuse(next.reason, `${next.detail} Skipped as unplayable: ${skippedNow.map((x) => `${x.videoId} (${x.reason})`).join(', ')}.`);
+      }
+      const index = entries.findIndex((e, i) => e.videoId === next.value.videoId && (direction === 1 ? i > at : i < at));
+      const played = await loadAndConfirm(p, next.value.videoId);
+      if (played.ok) {
+        deps.queue.set({ ...deps.queue.get(), currentEntryId: entries[index]?.entryId ?? null });
+        return ok({ ...played.value, skipped: [...next.value.skipped, ...skippedNow] });
+      }
+      if (played.reason !== REFUSAL_REASON.unavailableVideo) return played;
+      skippedNow.push({ videoId: next.value.videoId, reason: played.detail });
+      at = index;
+    }
   };
 
   const actions: ToolActions = {
@@ -209,7 +231,12 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       run(sig, TOOL.playbackSetCaptions, c, i, i['enabled'] === true ? 'Turn captions on' : 'Turn captions off', withPlayer((p) =>
         setCaptions(p, i['track'] === undefined ? { enabled: i['enabled'] === true } : { enabled: i['enabled'] === true, track: str(i['track']) }))),
     [TOOL.playbackPlayVideo]: (c, i, sig) =>
-      run(sig, TOOL.playbackPlayVideo, c, i, `Play "${titleOf(str(i['videoId']))}"`, withPlayer((p) => loadAndConfirm(p, str(i['videoId'])))),
+      run(sig, TOOL.playbackPlayVideo, c, i, `Play "${titleOf(str(i['videoId']))}"`, withPlayer(async (p) => {
+        const r = await loadAndConfirm(p, str(i['videoId']));
+        // Played from outside the queue: the queue has no current entry any more.
+        if (r.ok) deps.queue.set({ ...deps.queue.get(), currentEntryId: null });
+        return r;
+      })),
     [TOOL.playbackNext]: (c, i, sig) => run(sig, TOOL.playbackNext, c, i, 'Next video', withPlayer(navigate(1))),
     [TOOL.playbackPrevious]: (c, i, sig) => run(sig, TOOL.playbackPrevious, c, i, 'Previous video', withPlayer(navigate(-1))),
     [TOOL.playbackGetState]: (c, i, sig) =>

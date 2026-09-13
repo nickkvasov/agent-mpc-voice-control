@@ -33,10 +33,14 @@ export interface QueueEntry {
 
 export interface QueueState {
   readonly items: readonly QueueEntry[];
-  readonly currentVideoId: string | null;
+  /**
+   * The queue entry playing now, by entry — the queue may hold a video twice, so
+   * a video id cannot say which occurrence is current (Phase 10 Gate C).
+   */
+  readonly currentEntryId: string | null;
 }
 
-export const EMPTY_QUEUE: QueueState = { items: [], currentVideoId: null };
+export const EMPTY_QUEUE: QueueState = { items: [], currentEntryId: null };
 
 let seq = 0;
 /**
@@ -104,12 +108,18 @@ export function add(
       `That would add ${String(videoIds.length)} videos to the queue. Confirm that count to go ahead.`,
     );
   }
+  const ordered = sorted(q.items);
+  const at = q.currentEntryId === null ? -1 : ordered.findIndex((e) => e.entryId === q.currentEntryId);
   const entries =
-    position === 'next'
-      // Reversed so the first named video ends up first once sorted: each call
-      // to nextKeyBefore returns a lower key than the last.
-      ? [...videoIds].reverse().map((id) => newEntry(id, nextKeyBefore())).reverse()
-      : videoIds.map((id) => newEntry(id));
+    position !== 'next'
+      ? videoIds.map((id) => newEntry(id))
+      : at === -1
+        // Nothing from the queue is playing: "next" is the front. Reversed so the
+        // first named video ends up first once sorted.
+        ? [...videoIds].reverse().map((id) => newEntry(id, nextKeyBefore())).reverse()
+        // "Next" means after what is playing, not the front of the queue. Keys
+        // are spread strictly between the current entry and the one after it.
+        : spreadAfter(ordered, at, videoIds);
   return ok({ ...q, items: sorted([...q.items, ...entries]) });
 }
 
@@ -213,3 +223,11 @@ export function clear(q: QueueState, confirmedCount?: number): ToolResult<QueueS
   }
   return ok({ ...q, items: [] });
 }
+
+function spreadAfter(ordered: readonly QueueEntry[], at: number, videoIds: readonly string[]): QueueEntry[] {
+  const low = (ordered[at] as QueueEntry).order;
+  const following = ordered[at + 1];
+  const high = following === undefined ? low + 1 : following.order;
+  return videoIds.map((id, i) => newEntry(id, low + ((high - low) * (i + 1)) / (videoIds.length + 1)));
+}
+

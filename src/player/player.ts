@@ -41,6 +41,13 @@ export interface EmbeddedPlayer extends YouTubePlayer {
   loadedVideoId(): string | null;
   autoplayBlocked(): boolean;
   lastError(): { readonly code: number; readonly videoId: string | null } | null;
+  /**
+   * The last state the player REPORTED since the latest load or play request,
+   * or null before any. Reading `getPlayerState()` right after `loadVideoById`
+   * still returns the previous video's state, so a "playing" check passed at
+   * once and a failing second video was reported as playing (Gate C).
+   */
+  stateSinceRequest(): number | null;
 }
 
 export function isEmbeddedPlayer(p: YouTubePlayer): p is EmbeddedPlayer {

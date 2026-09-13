@@ -14,11 +14,13 @@ export interface PlayerViewProps {
   readonly onReady: (player: EmbeddedPlayer) => void;
   readonly onChange: () => void;
   readonly onError: (code: number, videoId: string | null) => void;
-  /** The current error, loading problem, or null. */
+  /** The current error, or null. */
   readonly status: string | null;
+  /** The title (or id) of the video the player was last asked to play. */
+  readonly nowPlaying: string | null;
 }
 
-export function PlayerView({ onReady, onChange, onError, status }: PlayerViewProps) {
+export function PlayerView({ onReady, onChange, onError, status, nowPlaying }: PlayerViewProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   /** Observable readiness: before it, every playback tool truthfully answers "still loading". */
@@ -59,6 +61,7 @@ export function PlayerView({ onReady, onChange, onError, status }: PlayerViewPro
   return (
     <section data-testid="player" data-ready={ready ? 'true' : 'false'} style={{ margin: '0.5rem 0' }}>
       <div ref={host} style={{ width: '100%', maxWidth: '40rem', aspectRatio: '16 / 9', background: '#111' }} />
+      {nowPlaying !== null && <p data-testid="now-playing">Now playing: {nowPlaying}</p>}
       {shown !== null && (
         <p data-testid="player-status" role="status" style={{ color: '#a00' }}>
           {shown}

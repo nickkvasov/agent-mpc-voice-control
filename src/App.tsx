@@ -35,6 +35,18 @@ import { createToolActions, type ToolActions } from './app/tool-actions.ts';
 import { ToolSurfaceProvider } from './mcp/declared-tools.tsx';
 
 
+/**
+ * "Done." — plus anything the person must be told about how it was done. FR-036:
+ * a queued video skipped because it cannot play is stated with its reason, not
+ * silently passed over (Phase 10 Gate C).
+ */
+function describeDone(value: unknown): string {
+  const skipped = (value as { skipped?: readonly { videoId: string; reason: string }[] } | null)?.skipped ?? [];
+  return skipped.length === 0
+    ? 'Done.'
+    : `Done. Skipped ${skipped.map((x) => `${x.videoId}: ${x.reason}`).join('; ')}`;
+}
+
 /** YouTube's code for "playing"; the vocabulary maps it, the tick only needs the raw value. */
 const PLAYING_CODE = 1;
 /** Well inside FR-013's one second. */
@@ -45,7 +57,6 @@ export function App() {
   const bump = useCallback(() => forceRender((n) => n + 1), []);
   /** The embedded player, once ready (T116). Null until then — never a stand-in. */
   const playerRef = useRef<EmbeddedPlayer | null>(null);
-  const [playerStatus, setPlayerStatus] = useState<string | null>(null);
   const p = playerRef.current;
 
   /**
@@ -384,7 +395,7 @@ export function App() {
             persist('refused', 'handler_threw');
             throw cause;
           }
-          setOutcome(r.ok ? 'Done.' : `Refused: ${r.detail}`);
+          setOutcome(r.ok ? describeDone(r.value) : `Refused: ${r.detail}`);
           persist(r.ok ? 'applied' : 'refused', r.ok ? null : r.reason);
         },
       });
@@ -443,7 +454,6 @@ export function App() {
         quota={quota}
         onPlay={(id) => {
           const title = results.items.find((v) => v.videoId === id)?.title ?? id;
-          setPlayerStatus(null);
           void perform(TOOL.playbackPlayVideo, { videoId: id }, () => `Playing "${title}".`);
         }}
         onAddToCollection={(id) => {
@@ -553,13 +563,22 @@ export function App() {
         />
       )}
       <PlayerView
-        status={playerStatus}
+        // Derived from the player, which owns it and resets it on every request —
+        // a copy in React state outlived the video it described (Gate C).
+        status={(() => {
+          const error = p?.lastError() ?? null;
+          return error === null ? null : describePlayerError(error.code).message;
+        })()}
+        nowPlaying={(() => {
+          const id = p?.loadedVideoId() ?? null;
+          return id === null ? null : (results.items.find((v) => v.videoId === id)?.title ?? id);
+        })()}
         onReady={(player) => {
           playerRef.current = player;
           bump();
         }}
         onChange={bump}
-        onError={(code) => setPlayerStatus(describePlayerError(code).message)}
+        onError={bump}
       />
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. Before the player exists they show nothing

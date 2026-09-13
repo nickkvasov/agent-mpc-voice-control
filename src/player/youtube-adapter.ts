@@ -16,23 +16,39 @@ export interface AdapterEvents {
   readonly error: (code: number, videoId: string | null) => void;
 }
 
+/** How long the embed may take to report ready once the API script has loaded. */
+export const PLAYER_READY_TIMEOUT_MS = 15_000;
+
 export function createEmbeddedPlayer(
   YT: YTNamespace,
   host: HTMLElement,
   events: AdapterEvents,
+  readyTimeoutMs: number = PLAYER_READY_TIMEOUT_MS,
 ): Promise<EmbeddedPlayer> {
   let loaded: string | null = null;
   let blocked = false;
   let error: { code: number; videoId: string | null } | null = null;
+  let reported: number | null = null;
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // The script loader's own deadline ended when the script ran. An embed that
+    // never answers would otherwise leave every command "still loading" forever.
+    const deadline = setTimeout(() => {
+      reject(new Error(`The YouTube player did not become ready within ${String(readyTimeoutMs / 1000)} seconds.`));
+    }, readyTimeoutMs);
     const player: YTPlayerInstance = new YT.Player(host, {
       width: '100%',
       height: '100%',
       playerVars: { origin: window.location.origin, playsinline: 1, rel: 0 },
       events: {
-        onReady: () => resolve(adapter),
-        onStateChange: () => events.changed(),
+        onReady: () => {
+          clearTimeout(deadline);
+          resolve(adapter);
+        },
+        onStateChange: (e) => {
+          reported = e.data;
+          events.changed();
+        },
         onAutoplayBlocked: () => {
           blocked = true;
           events.changed();
@@ -48,6 +64,7 @@ export function createEmbeddedPlayer(
     const reset = (): void => {
       blocked = false;
       error = null;
+      reported = null;
     };
 
     const adapter: EmbeddedPlayer = {
@@ -59,6 +76,7 @@ export function createEmbeddedPlayer(
       loadedVideoId: () => loaded,
       autoplayBlocked: () => blocked,
       lastError: () => error,
+      stateSinceRequest: () => reported,
       playVideo: () => {
         reset();
         player.playVideo();

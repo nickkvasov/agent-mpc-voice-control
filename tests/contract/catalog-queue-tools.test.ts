@@ -97,7 +97,7 @@ describe('queue', () => {
   });
 
   it('requires the count to clear a large queue', () => {
-    const big = { items: ['1', '2', '3', '4', '5', '6'].map(newEntry), currentVideoId: null };
+    const big = { items: ['1', '2', '3', '4', '5', '6'].map(newEntry), currentEntryId: null };
     expect(clear(big).ok).toBe(false);
     expect(clear(big, 5).ok).toBe(false);
     expect(clear(big, 6).ok).toBe(true);
@@ -189,7 +189,7 @@ describe('Gate C round 1 regressions', () => {
   });
 
   it('removes one occurrence of a repeated video, not both', () => {
-    const q = { items: ['A', 'B', 'A'].map(newEntry), currentVideoId: null };
+    const q = { items: ['A', 'B', 'A'].map(newEntry), currentEntryId: null };
     const first = q.items[0] as { entryId: string };
     const r = removeEntries(q, [first.entryId]);
     expect(r.ok).toBe(true);
@@ -197,7 +197,7 @@ describe('Gate C round 1 regressions', () => {
   });
 
   it('gates a bulk removal and then allows it once the count is confirmed', () => {
-    const q = { items: ['1', '2', '3', '4', '5', '6'].map(newEntry), currentVideoId: null };
+    const q = { items: ['1', '2', '3', '4', '5', '6'].map(newEntry), currentEntryId: null };
     const ids = q.items.map((e) => e.entryId);
     expect(removeEntries(q, ids).ok).toBe(false);
     expect(removeEntries(q, ids, 6).ok).toBe(true);
@@ -263,7 +263,7 @@ describe('Gate C round 3 regressions', () => {
   it('a delayed removal deletes the clicked entry, not whatever moved into its slot', () => {
     // Gate C: with [A,B,C], clicking A's Remove twice during a slow search made
     // the second click delete B while claiming it removed A.
-    const q = { items: ['A', 'B', 'C'].map(newEntry), currentVideoId: null };
+    const q = { items: ['A', 'B', 'C'].map(newEntry), currentEntryId: null };
     const aEntry = q.items[0] as { entryId: string };
     const first = removeEntries(q, [aEntry.entryId]);
     expect(first.ok).toBe(true);

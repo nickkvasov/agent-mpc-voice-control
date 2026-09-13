@@ -1,4 +1,4 @@
-import { expect, fake, loadVideo, playerReady, test } from './fixtures/player.ts';
+import { expect, fake, loadVideo, playerReady, showResults, test } from './fixtures/player.ts';
 
 /**
  * T111 — the real player's contract, against the fake IFrame API (R10).
@@ -99,5 +99,64 @@ test('a video shorter than a minute shows its seconds, not "0 min"', async ({ pa
   const item = page.locator('[data-testid="result-item"]').first();
   await expect(item).toContainText('(8 s)');
   await expect(item).not.toContainText('0 min');
+});
+
+// ── Phase 10 Gate C round 1 ────────────────────────────────────────────────
+const A = { videoId: 'AAAAAAAAAAA', title: 'Video A' };
+const B = { videoId: 'BBBBBBBBBBB', title: 'Video B' };
+const C = { videoId: 'CCCCCCCCCCC', title: 'Video C' };
+const nowPlaying = (page: import('@playwright/test').Page) => page.locator('[data-testid="now-playing"]');
+const result = (page: import('@playwright/test').Page, title: string) => page.locator('[data-testid="result-item"]', { hasText: title });
+async function send(page: import('@playwright/test').Page, command: string) {
+  await page.fill('[data-testid="command-input"]', command);
+  await page.click('[data-testid="command-submit"]');
+}
+
+test('[P1] switching videos confirms the NEW video — a failing second video is not reported as playing', async ({ page }) => {
+  await showResults(page, [A, B]);
+  await result(page, 'Video A').locator('text=Play').click();
+  await expect(state(page)).toContainText('playing');
+  await fake.set(page, { errorFor: { [B.videoId]: 101 } });
+  await result(page, 'Video B').locator('text=Play').click();
+  await expect(outcome(page)).toContainText('does not allow it to be embedded');
+  await expect(outcome(page)).not.toContainText('Playing');
+  await expect(result(page, 'Video B').locator('[data-testid="result-unavailable"]')).toBeVisible();
+});
+
+test('[P2] "next" walks a queue holding a video twice, occurrence by occurrence', async ({ page }) => {
+  await showResults(page, [A, B, C]);
+  for (const v of ['Video A', 'Video B', 'Video A', 'Video C']) {
+    await result(page, v).locator('text=Queue').click();
+  }
+  await expect(page.locator('[data-testid="queue"] h2')).toContainText('Queue (4)');
+  for (const expected of ['Video A', 'Video B', 'Video A', 'Video C']) {
+    await send(page, 'next');
+    await expect(nowPlaying(page)).toContainText(expected);
+    await expect(state(page)).toContainText('playing');
+  }
+});
+
+test('[P2] "next" skips a video that turns out to be unavailable and says why', async ({ page }) => {
+  await showResults(page, [A, B]);
+  await fake.set(page, { errorFor: { [A.videoId]: 101 } });
+  await result(page, 'Video A').locator('text=Queue').click();
+  await result(page, 'Video B').locator('text=Queue').click();
+  await send(page, 'next');
+  await expect(nowPlaying(page)).toContainText('Video B');
+  await expect(state(page)).toContainText('playing');
+  // FR-036: the skip is stated, with the specific reason, where the person looks.
+  await expect(outcome(page)).toContainText('Skipped AAAAAAAAAAA');
+  await expect(outcome(page)).toContainText('does not allow it to be embedded');
+});
+
+test('[P2] a player error is cleared when another video then plays, however it was started', async ({ page }) => {
+  await showResults(page, [A, B]);
+  await fake.set(page, { errorFor: { [A.videoId]: 101 } });
+  await result(page, 'Video A').locator('text=Play').click();
+  await expect(page.locator('[data-testid="player-status"]')).toContainText('does not allow');
+  await result(page, 'Video B').locator('text=Queue').click();
+  await send(page, 'next');
+  await expect(nowPlaying(page)).toContainText('Video B');
+  await expect(page.locator('[data-testid="player-status"]')).toHaveCount(0);
 });
 

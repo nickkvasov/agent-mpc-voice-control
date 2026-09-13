@@ -20,6 +20,8 @@
     dropNextStateChange: false,
     /** Fire this player error code instead of loading. */
     errorOnLoad: null,
+    /** Per-video error codes: { [videoId]: code }. */
+    errorFor: {},
     players: [],
   });
   const later = (ms, fn) => setTimeout(fn, ms);
@@ -65,8 +67,9 @@
       this.videoId = videoId;
       this.time = 0;
       this.duration = 600;
-      if (control.errorOnLoad !== null) {
-        const code = control.errorOnLoad;
+      const code0 = control.errorFor[videoId] ?? control.errorOnLoad;
+      if (code0 !== null && code0 !== undefined) {
+        const code = code0;
         later(5, () => this.options.events?.onError?.({ target: this, data: code }));
         return;
       }
