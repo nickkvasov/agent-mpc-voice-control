@@ -1,5 +1,5 @@
 {
-  "$comment": "The gate commands for agent-mpc-voice-control-1. kaliper:phased-implement reads this file and never invents a command: an empty array or a null means UNCONFIGURED, and the skill reports that gate as NOT RUN rather than guessing. Filled by hand at T006 — every command below was executed and observed green before being written here, per the rule that a gate running an inferred command reports PASS and means nothing. Nothing replaces this file without --redetect-gates.",
+  "$comment": "The gate commands for agent-mpc-voice-control-1. kaliper:phased-implement reads this file and never invents a command: an empty array or a null means UNCONFIGURED, and the skill reports that gate as NOT RUN rather than guessing. Filled by hand at T006 \u2014 every command below was executed and observed green before being written here, per the rule that a gate running an inferred command reports PASS and means nothing. Nothing replaces this file without --redetect-gates. `npm run test:e2e:live` (added at T093) needs network, YOUTUBE_API_KEY and ANTHROPIC_API_KEY in dev.env, and spends real quota and assistant turns; it is the only gate that exercises the real embed and the real assistant, so a missing prerequisite is reported NOT RUN, never skipped as passing.",
   "packageManager": "npm",
   "fast": [
     {
@@ -23,11 +23,17 @@
     }
   ],
   "final": [
-    "npm run test:e2e"
+    "npm run test:e2e",
+    "npm run test:e2e:live"
   ],
   "live": {
-    "start": ["npm run dev"],
-    "urls": ["http://localhost:5273"],
-    "note": "Port 5273 is deliberate, not the Vite default. A test-agent-mcp dev server occupies 5173 on this machine, and an e2e run attached to it and asserted against that unrelated app's DOM. vite.config.ts sets strictPort so a collision fails loudly instead of drifting to the next free port while the runner talks to whatever holds 5273; playwright.config.ts sets reuseExistingServer:false for the same reason. Readiness: the Vite dev server answers within about a second, but a rendered shell is not a working feature — once the backend exists, check that the ticket endpoint answers before treating a connected-looking UI as ready."
+    "start": [
+      "npm run dev:all"
+    ],
+    "urls": [
+      "http://localhost:5273",
+      "http://localhost:8787/health"
+    ],
+    "note": "Port 5273 is deliberate, not the Vite default. A test-agent-mcp dev server occupies 5173 on this machine, and an e2e run attached to it and asserted against that unrelated app's DOM. vite.config.ts sets strictPort so a collision fails loudly instead of drifting to the next free port while the runner talks to whatever holds 5273; playwright.config.ts sets reuseExistingServer:false for the same reason. Readiness: the Vite dev server answers within about a second, but a rendered shell is not a working feature \u2014 once the backend exists, check that the ticket endpoint answers before treating a connected-looking UI as ready. Since T092 the live start runs the backend and Vite as one process group; if either dies both stop, so a half-running stack cannot pass for a working one."
   }
 }

@@ -355,10 +355,10 @@ reported as a smaller gap than it is.
 **Purpose**: Dependencies, scripts and gates the new work needs. Plan: *Revision 2026-09-13*;
 research R6–R10.
 
-- [ ] T091 Install `ws` 8.x, `@types/ws` and `@modelcontextprotocol/client` 2.x (the reference gateway's own choices, R6) in `package.json` — if npm times out, run with `NODE_OPTIONS=--network-family-autoselection-attempt-timeout=15000` (NOTES.md)
-- [ ] T092 Add `npm run dev:all`, starting the backend and Vite as one process group that stops both on exit and on either one failing, in `scripts/dev-all.mjs` and `package.json`; change `live.start` to `npm run dev:all` and add `http://localhost:8787/health` to `live.urls` in `.claude/kaliper/phased-implement/gates.json`
-- [ ] T093 [P] Add a separate Playwright project for `tests/e2e-live/` (excluded from `test:e2e`, needs network and `dev.env`) and a `test:e2e:live` script, in `playwright.config.ts` and `package.json`; add it to `final` in `.claude/kaliper/phased-implement/gates.json` with a `why` naming its prerequisites
-- [ ] T094 [P] Replace the `gatewayOrigin` default `wss://localhost:8788` with the backend's own origin (`ws://localhost:8787` in development) and document `ASSISTANT_TURNS_PER_SESSION` (40) and `ASSISTANT_TURNS_PER_DAY` (400) in `server/index.ts` and `.env.example`
+- [X] T091 Install `ws` 8.x, `@types/ws` and `@modelcontextprotocol/client` 2.x (the reference gateway's own choices, R6) in `package.json` — if npm times out, run with `NODE_OPTIONS=--network-family-autoselection-attempt-timeout=15000` (NOTES.md)
+- [X] T092 Add `npm run dev:all`, starting the backend and Vite as one process group that stops both on exit and on either one failing, in `scripts/dev-all.mjs` and `package.json`; change `live.start` to `npm run dev:all` and add `http://localhost:8787/health` to `live.urls` in `.claude/kaliper/phased-implement/gates.json`
+- [X] T093 [P] Add a separate Playwright configuration for `tests/e2e-live/` (excluded from `test:e2e`, needs network and `dev.env`) and a `test:e2e:live` script, in `playwright.live.config.ts` and `package.json` — a separate file rather than a project in `playwright.config.ts`, so the deterministic suite cannot start the backend or read credentials by accident; add it to `final` in `.claude/kaliper/phased-implement/gates.json` with a `why` naming its prerequisites
+- [X] T094 [P] Replace the `gatewayOrigin` default `wss://localhost:8788` with the backend's own origin (`ws://localhost:8787` in development) and document `ASSISTANT_TURNS_PER_SESSION` (40) and `ASSISTANT_TURNS_PER_DAY` (400) in `server/index.ts` and `.env.example`
 
 ---
 

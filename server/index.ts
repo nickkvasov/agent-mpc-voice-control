@@ -14,6 +14,10 @@ import { handle, requestUrl, writeReply, type RouteDeps } from './routes.ts';
  */
 const PORT = Number(process.env['PORT'] ?? 8787);
 
+function nonBlank(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === '' ? undefined : value.trim();
+}
+
 export function createDeps(): RouteDeps {
   const budget = new SearchBudget();
   const youtubeKey = (process.env['YOUTUBE_API_KEY'] ?? '').trim();
@@ -23,7 +27,12 @@ export function createDeps(): RouteDeps {
     throw new Error('YOUTUBE_API_KEY is not set on the backend');
   };
   return {
-    gatewayOrigin: process.env['GATEWAY_ORIGIN'] ?? 'wss://localhost:8788',
+    // The gateway lives in this process (R6), so by default the page dials this
+    // server. The old default named wss://localhost:8788 — a server that never
+    // existed. `ws:` is permitted because localhost is a secure context.
+    // Blank counts as unset: `.env.example` lists the key empty, and `??` alone
+    // would turn a copied example into a ticket URL with no origin at all.
+    gatewayOrigin: nonBlank(process.env['GATEWAY_ORIGIN']) ?? `ws://localhost:${String(PORT)}`,
     search: youtubeKey === ''
       ? new CatalogSearch(unconfigured, budget)
       : new CatalogSearch(youTubeSearchFetcher(youtubeKey), budget, youTubeDurationFiller(youtubeKey)),
