@@ -1,11 +1,11 @@
-import type { ActivityRecorder, RecordedCall } from './record-writer.ts';
+import type { ActivityRecorder } from './record-writer.ts';
 import { REFUSAL_REASON, isRefusalReason, type RefusalReason } from '../vocab/refusal-reasons.ts';
-import { handlerStarts as pageHandlerStarts, type HandlerStarts } from './handler-starts.ts';
 
 /**
- * Maps the provider's observed calls onto activity entries — for calls refused
- * BEFORE any handler ran, and only those (Phase 9). A call that reached its
- * handler is recorded by the handler path, which knows its outcome and effect.
+ * Maps the provider's observed calls onto activity entries — for calls a check
+ * refused BEFORE any handler ran, and only those. A call that reached its
+ * handler is recorded by the handler path, which knows its outcome and effect;
+ * a cancelled call is not recorded here at all (see below).
  *
  * Only TERMINAL phases are considered. The `start` phase is ignored: recording
  * it too would write two entries for one call, which is the duplicate codex
@@ -56,11 +56,7 @@ function reasonFor(code: string | undefined): RefusalReason {
   return REFUSAL_REASON.capabilityUnsupported;
 }
 
-export function recordObservedCall(
-  recorder: ActivityRecorder,
-  event: ObservedCallLike,
-  starts: HandlerStarts = pageHandlerStarts,
-): void {
+export function recordObservedCall(recorder: ActivityRecorder, event: ObservedCallLike): void {
   if (event.phase !== CALL_PHASE_RESULT && event.phase !== CALL_PHASE_ERROR) return;
 
   const invoke = event.gates.find((g) => g.step === INVOKE_STEP);
@@ -69,40 +65,37 @@ export function recordObservedCall(
     // acceptable evidence, so the malformed event is reported, not absorbed.
     throw new Error(`Observed call ${String(event.callId)} (${event.name}) carries no ${INVOKE_STEP} gate; cannot tell whether a handler ran`);
   }
-  if (invoke.outcome !== NOT_RUN) {
-    // The handler ran and recorded this call; retire its start, whatever its
-    // signal now says — a late abort does not make it a call that never ran.
-    starts.consume(event.name, event.arguments, false);
-    return;
-  }
-  // `notRun` is not proof no handler ran: the library's cancellation path leaves
-  // it unmarked. A cancelled call is skipped only if ITS handler started — its
-  // signal is the aborted one (Phase 9 Gate C, rounds 1 and 2). Any other
-  // pre-handler refusal never reached a handler, so it is recorded here.
-  const code = codeOf(event.failure);
-  const cancelled = code === CALL_CANCELLED || code === CALL_ABANDONED;
-  if (cancelled && starts.consume(event.name, event.arguments, true)) return;
+  // A handler ran and recorded this call itself, with its outcome and effect.
+  if (invoke.outcome !== NOT_RUN) return;
 
-  const base = {
+  const code = codeOf(event.failure);
+  /**
+   * A cancellation is never recorded here (decided 2026-09-14).
+   *
+   * The library's cancellation path leaves `invoke` at `notRun` even when the
+   * handler DID run, and 0.3.0 gives a handler nothing to correlate its call
+   * with — so recording cancellations here meant inferring which call was
+   * which. Five review rounds each found another ordering the inference got
+   * wrong. Now: if the handler ran, its own entry stands; if it never ran,
+   * nothing happened, and the withdrawal shows at the turn level instead.
+   * Exact, with no inference. What IS recorded here is exact too: a call a
+   * check refused before any handler, which the runtime states outright.
+   */
+  if (code === CALL_CANCELLED || code === CALL_ABANDONED) return;
+  if (event.phase === CALL_PHASE_RESULT) {
+    // A result with no handler run is not a state the runtime describes.
+    throw new Error(`Observed call ${String(event.callId)} (${event.name}) produced a result without running its handler`);
+  }
+
+  recorder.record({
     callId: `${event.route ?? 'agent'}:${String(event.callId)}`,
     toolName: event.name,
     arguments: event.arguments ?? null,
-  };
-
-  const call: RecordedCall =
-    event.phase === CALL_PHASE_RESULT
-      ? { ...base, description: `Ran ${event.name}.`, result: 'succeeded' }
-      : {
-          ...base,
-          description: `Refused ${event.name}.`,
-          result: 'failed',
-          // Never empty: the record writer throws on a non-success with no
-          // detail, so a failure with no message still names its code.
-          failureDetail:
-            codeOf(event.failure) ??
-            'The call failed and the runtime reported no coded reason for it.',
-          refusalReason: reasonFor(codeOf(event.failure)),
-        };
-
-  recorder.record(call);
+    description: `Refused ${event.name}.`,
+    result: 'failed',
+    // Never empty: the record writer throws on a non-success with no detail,
+    // so a failure with no message still names its code.
+    failureDetail: code ?? 'The call failed and the runtime reported no coded reason for it.',
+    refusalReason: reasonFor(code),
+  });
 }

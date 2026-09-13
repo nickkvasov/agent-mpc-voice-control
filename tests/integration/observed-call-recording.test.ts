@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActivityRecorder, createInMemoryActivityStore } from '../../src/activity/record-writer.ts';
 import { recordObservedCall, type ObservedCallLike } from '../../src/activity/from-observed-call.ts';
-import { HandlerStarts } from '../../src/activity/handler-starts.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 
 /**
@@ -71,70 +70,25 @@ describe('observed calls become activity entries only when no handler ran', () =
   });
 });
 
-describe('a cancellation is matched to the invocation it belongs to (Phase 9 Gate C, rounds 1 and 2)', () => {
+describe('cancellations are never recorded by the observer (decided 2026-09-14)', () => {
   const rec = () => new ActivityRecorder(createInMemoryActivityStore());
-  const args = { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-3' };
-  const terminal = (callId: number, kind: 'cancelled' | 'passed'): ObservedCallLike =>
-    kind === 'cancelled'
-      ? {
-          phase: 'error', callId, name: 'queue.add', arguments: { ...args },
-          // The library's cancellation path leaves `invoke` at notRun even when the handler ran.
-          gates: gates('notRun'),
-          failure: { vocabulary: 'runtime', code: 'MCP_TOOL_CALL_CANCELLED' },
-        }
-      : { phase: 'result', callId, name: 'queue.add', arguments: { ...args }, gates: gates('passed') };
+  const cancelled = (code: string, callId: number): ObservedCallLike => ({
+    phase: 'error', callId, name: 'queue.add', gates: gates('notRun'),
+    failure: { vocabulary: 'runtime', code },
+  });
 
-  it('skips a cancelled call whose own handler started — that handler recorded it', () => {
+  it.each(['MCP_TOOL_CALL_CANCELLED', 'MCP_TOOL_CALL_ABANDONED'])(
+    '%s with invoke notRun writes nothing — the handler recorded it if it ran, and nothing happened if it did not',
+    (code) => {
+      const r = rec();
+      recordObservedCall(r, cancelled(code, 20));
+      expect(r.entries()).toHaveLength(0);
+    },
+  );
+
+  it('a result with no handler run is reported as an unexpected state, not recorded', () => {
     const r = rec();
-    const starts = new HandlerStarts();
-    const b = new AbortController();
-    starts.begin('queue.add', args, b.signal);
-    b.abort();
-    starts.settle('queue.add', args, b.signal);
-    recordObservedCall(r, terminal(7, 'cancelled'), starts);
+    expect(() => recordObservedCall(r, { phase: 'result', callId: 21, name: 'queue.add', gates: gates('notRun') })).toThrow(/without running its handler/);
     expect(r.entries()).toHaveLength(0);
   });
-
-  it('records a cancelled call whose handler never started', () => {
-    const r = rec();
-    recordObservedCall(r, terminal(8, 'cancelled'), new HandlerStarts());
-    expect(r.entries()).toHaveLength(1);
-  });
-
-  it('an identical call still running is not mistaken for the cancelled one (codex round 2)', () => {
-    const r = rec();
-    const starts = new HandlerStarts();
-    const a = new AbortController();
-    starts.begin('queue.add', args, a.signal); // A is in its handler, not cancelled
-    recordObservedCall(r, terminal(9, 'cancelled'), starts); // B, identical, cancelled before its handler
-    expect(r.entries()).toHaveLength(1); // B is recorded
-    starts.settle('queue.add', args, a.signal);
-    recordObservedCall(r, terminal(10, 'passed'), starts); // A finishes; its handler recorded it
-    expect(r.entries()).toHaveLength(1);
-  });
-
-  it('two identical cancelled starts are matched one each, never both by one event', () => {
-    const r = rec();
-    const starts = new HandlerStarts();
-    const a = new AbortController();
-    starts.begin('queue.add', args, a.signal);
-    a.abort();
-    recordObservedCall(r, terminal(11, 'cancelled'), starts);
-    recordObservedCall(r, terminal(12, 'cancelled'), starts);
-    expect(r.entries()).toHaveLength(1);
-  });
-
-  it('a completed call aborted late still retires its start, so a later cancelled call is recorded (codex round 3)', () => {
-    const r = rec();
-    const starts = new HandlerStarts();
-    const a = new AbortController();
-    starts.begin('queue.add', args, a.signal);
-    starts.settle('queue.add', args, a.signal); // A's handler completed and recorded its entry
-    a.abort(); // then a late cancellation: the runtime keeps invoke: passed
-    recordObservedCall(r, terminal(13, 'passed'), starts); // A's terminal retires A's start
-    recordObservedCall(r, terminal(14, 'cancelled'), starts); // B, identical, cancelled before its handler
-    expect(r.entries()).toHaveLength(1); // B is recorded, not swallowed by A's stale start
-  });
-
 });
-

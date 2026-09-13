@@ -480,3 +480,24 @@ search or confirmation overwrite a newer one when it resumes, so the check must 
 **Decided**: as recommended (research.md R7). One divergence: the reason is `overtaken_by_newer_command`,
 not codex's `superseded_by_newer_command`, because `superseded` already names an undo state here.
 
+### 2026-09-14 — are calls cancelled before a handler ran recorded? (decided by the user)
+
+**Narrows the 2026-09-12 decision, for cancellations only.** That decision said every attempted call is
+recorded, including ones refused before a handler, because the library exposes the boundary. For
+REFUSALS it does, exactly: a gate says `refused`. For CANCELLATIONS it does not: the library's
+cancellation path leaves `invoke` at `notRun` even when the handler ran, and 0.3.0 gives a handler
+nothing to correlate its call with. Recording them meant inferring which observed call was which
+handler call. Five Gate C rounds on that inference each found another ordering; the last found the
+page-script route has different signal and verdict semantics altogether.
+
+**Options put to the user:** stop inferring; keep matching and add per-route rules; or change the
+library to pass request metadata to handlers.
+
+**Decided: stop inferring.** The observer records only calls a check refused before any handler, and
+never a cancellation. If a cancelled call's handler ran, that handler's entry stands; if it never ran,
+nothing happened, and the withdrawal is visible at the assistant turn (Phase 12's `done: cancelled`).
+The matching code (`handler-starts.ts`, 900-ordering test) is deleted — exact behaviour with no
+inference beats an inference proven correct only for the routes someone thought to model.
+
+**Revisit if** `agent-mcp-react` starts passing request `_meta` or a call id to handlers.
+
