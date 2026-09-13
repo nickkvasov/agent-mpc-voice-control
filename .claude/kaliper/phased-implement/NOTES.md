@@ -320,23 +320,31 @@ not open" could not happen. Hide/Show controls made it real; the registry count 
 - An assertion on a label checks the words the person sees, and that the internal id is absent.
 - "Implemented" means reachable from the running page. Grep for the caller before marking a task done.
 
-### 2026-09-13 — Phase 9 Gate C: three rounds on one inferred join
+### 2026-09-13 — Phase 9 Gate C: four rounds on one inferred join, then enumeration
 
-Round 1 found six real defects in the new action layer (each reproduced by a test before its fix).
-Rounds 2 and 3 were both regressions in round 1's fixes — and both in the same place: matching a
-handler to its observed terminal. `agent-mcp-react` 0.3.0 never tells a handler which invocation it
-serves, so the join is inferred from tool, arguments and the invocation's signal. Round 2: arguments
-alone misattributed identical concurrent calls. Round 3: a completed call aborted late left its start
-unretired. Each fix closed its ordering; one ordering cannot be closed from the page and is documented
-in `src/activity/handler-starts.ts` as a known limit, with the real fix named: the library passing
-request `_meta` to handlers.
+Round 1 found six real defects in the new action layer, each reproduced by a test before its fix.
+Rounds 2, 3 and 4 were all regressions in the previous round's fix, in one place: matching a handler to
+its observed terminal, which `agent-mcp-react` 0.3.0 never correlates for the application. Each round
+I closed the ordering codex found and argued the rest were fine. Twice that argument was wrong:
+- Round 3 I removed a "prefer a finished start" rule as unobservable because break-it stayed green —
+  but I had checked ONE ordering. Round 4 found the ordering where it mattered.
+- Round 3 I documented a "known limit" the page could not close. It could: the handler knows whether
+  its own signal was already aborted when it settled, which is exactly the library's verdict rule.
 
-**A rule no test can observe was removed, not kept.** A "prefer a running handler" preference stayed
-green under break-it: identical starts are interchangeable, so which one is consumed changes no entry
-count in any ordering.
+**What ended it was enumeration, not a better argument.** A 40-line model of the events (begin,
+settle, abort, terminal) checked every interleaving: the round-3 rule was wrong in 8 of 150 orderings,
+codex's proposed fix in 4, a finished-aware rule in 2 of 900, and the aborted-at-settle rule in 0 of
+900 for two calls and 0 of 1,309,686 for three. The shipped test enumerates all 900 two-call orderings
+against the real code, and fails for every earlier rule.
 
-**Harness again.** A stray `cat >` with no heredoc blocked a break-it run on stdin for 400 seconds; it
-looked like a hanging test. Before trusting a stuck run, check what is actually running.
+**Standing rules.**
+- A matching or ordering rule is not reviewed by scenario. Enumerate the interleavings; a scenario that
+  passes proves one ordering.
+- "Break-it stayed green, so the rule is unobservable" only holds for the orderings the test contains.
+- A "known limit" claim needs the same evidence as a fix: show the ordering is indistinguishable from
+  every fact available, not just from the facts the current design records.
+- **Harness again.** A stray `cat >` with no heredoc blocked a break-it run on stdin for 400 seconds and
+  looked like a hanging test. Before trusting a stuck run, check what is actually running.
 
 ## Decisions that go to codex
 

@@ -90,6 +90,7 @@ describe('a cancellation is matched to the invocation it belongs to (Phase 9 Gat
     const b = new AbortController();
     starts.begin('queue.add', args, b.signal);
     b.abort();
+    starts.settle('queue.add', args, b.signal);
     recordObservedCall(r, terminal(7, 'cancelled'), starts);
     expect(r.entries()).toHaveLength(0);
   });
@@ -107,6 +108,7 @@ describe('a cancellation is matched to the invocation it belongs to (Phase 9 Gat
     starts.begin('queue.add', args, a.signal); // A is in its handler, not cancelled
     recordObservedCall(r, terminal(9, 'cancelled'), starts); // B, identical, cancelled before its handler
     expect(r.entries()).toHaveLength(1); // B is recorded
+    starts.settle('queue.add', args, a.signal);
     recordObservedCall(r, terminal(10, 'passed'), starts); // A finishes; its handler recorded it
     expect(r.entries()).toHaveLength(1);
   });
@@ -127,7 +129,7 @@ describe('a cancellation is matched to the invocation it belongs to (Phase 9 Gat
     const starts = new HandlerStarts();
     const a = new AbortController();
     starts.begin('queue.add', args, a.signal);
-    // A's handler completed and recorded its entry.
+    starts.settle('queue.add', args, a.signal); // A's handler completed and recorded its entry
     a.abort(); // then a late cancellation: the runtime keeps invoke: passed
     recordObservedCall(r, terminal(13, 'passed'), starts); // A's terminal retires A's start
     recordObservedCall(r, terminal(14, 'cancelled'), starts); // B, identical, cancelled before its handler
