@@ -78,6 +78,31 @@ export class ActivityRecorder {
   readonly #store: ActivityStore;
   readonly #seen = new Set<string>();
   #counter = 0;
+  readonly #listeners = new Set<{ readonly listener: () => void; readonly onError: (cause: unknown) => void }>();
+
+  /**
+   * Called after every write, whoever made it — a button, a registry call, the
+   * provider's observer. A view that refreshed only after its own actions left
+   * refusals from other writers invisible (Phase 9, and Phase 7 before it).
+   */
+  subscribe(listener: () => void, onError: (cause: unknown) => void = (cause) => console.error('[activity] listener failed', cause)): () => void {
+    const entry = { listener, onError };
+    this.#listeners.add(entry);
+    return () => {
+      this.#listeners.delete(entry);
+    };
+  }
+
+  #notify(): void {
+    for (const { listener, onError } of this.#listeners) {
+      // A failing listener is reported and must not block the others or undo the write.
+      try {
+        listener();
+      } catch (cause) {
+        onError(cause);
+      }
+    }
+  }
 
   constructor(store: ActivityStore) {
     this.#store = store;
@@ -118,6 +143,7 @@ export class ActivityRecorder {
       supersededBy: null,
     };
     this.#store.append(entry);
+    this.#notify();
     return entry;
   }
 
@@ -128,5 +154,6 @@ export class ActivityRecorder {
   /** Marks an entry undone so it is not offered again (FR-031's counterpart). */
   markUndone(entryId: string): void {
     this.#store.replace(entryId, (e) => ({ ...e, undone: true }));
+    this.#notify();
   }
 }

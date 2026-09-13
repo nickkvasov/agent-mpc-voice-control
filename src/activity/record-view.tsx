@@ -1,3 +1,5 @@
+import { DeclaredTools } from '../mcp/declared-tools.tsx';
+import { VIEW_TOOLS } from '../mcp/tool-descriptions.ts';
 import { undoLabel, type DescribableEntry } from './describe.ts';
 import { eligibility, type EligibilityContext } from './supersession.ts';
 
@@ -20,6 +22,8 @@ export function RecordView({ entries, onUndo, eligibilityContext = {} }: RecordV
   const ordered = [...entries].sort((a, b) => b.sequence - a.sequence);
   return (
     <section data-testid="activity" style={{ margin: '0.5rem 0' }}>
+      {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
+      <DeclaredTools tools={VIEW_TOOLS.activity} />
       <h2 style={{ fontSize: '1rem' }}>What the assistant did ({entries.length})</h2>
       {ordered.length === 0 ? (
         <p data-testid="activity-empty">Nothing yet.</p>

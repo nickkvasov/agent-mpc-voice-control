@@ -1,3 +1,5 @@
+import { DeclaredTools } from '../mcp/declared-tools.tsx';
+import { VIEW_TOOLS } from '../mcp/tool-descriptions.ts';
 import type { ResultSet } from './results.ts';
 import { describeCriteria } from './results.ts';
 import { isUnknown } from '../store/video-reference.ts';
@@ -27,6 +29,8 @@ export interface ResultsViewProps {
 export function ResultsView({ results, quota, onQueue, onPlay, onAddToCollection }: ResultsViewProps) {
   return (
     <section data-testid="results" style={{ margin: '0.5rem 0' }}>
+      {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
+      <DeclaredTools tools={VIEW_TOOLS.results} />
       <h2 style={{ fontSize: '1rem' }}>Results</h2>
       <p data-testid="results-operation">{OPERATION_LABEL[results.operation]}{results.fromCache ? ' (from cache, no allowance spent)' : ''}</p>
       <p data-testid="results-criteria">Criteria: {describeCriteria(results.criteria)}</p>

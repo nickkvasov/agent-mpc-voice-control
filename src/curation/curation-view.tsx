@@ -1,3 +1,5 @@
+import { DeclaredTools } from '../mcp/declared-tools.tsx';
+import { VIEW_TOOLS } from '../mcp/tool-descriptions.ts';
 import type { Collection } from './collections.ts';
 import { displayName } from './annotations.ts';
 import type { VideoReference } from '../store/video-reference.ts';
@@ -28,6 +30,8 @@ export function CurationView({
   const byId = new Map(videos.map((v) => [v.videoId, v]));
   return (
     <section data-testid="curation" style={{ margin: '0.5rem 0' }}>
+      {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
+      <DeclaredTools tools={VIEW_TOOLS.curation} />
       <h2 style={{ fontSize: '1rem' }}>Collections ({collections.length})</h2>
       {storageDurable === false && (
         <p data-testid="storage-warning" style={{ color: '#a00', fontSize: '0.85rem' }}>

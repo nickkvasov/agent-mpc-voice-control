@@ -17,7 +17,10 @@ them (IMMUNE-N).
 3. **Every invocation writes exactly one activity record**, including refusals (FR-029, SC-006).
 4. **Tools exist only while the UI that declares them is on screen.** A call to an absent tool is
    reported as unavailable, naming the view that owns it (FR-035).
-5. **Tools that discard curation declare `confirmation: 'required'`** (FR-026).
+5. **Tools that discard curation ask the person inside the handler**, naming the target, before the
+   domain is taken (FR-026). Not through `agent-mcp-react`'s `confirmation: 'required'`: that gates only
+   the library's bridge — a page script calls the same tool with no dialog — and declaring both would ask
+   the assistant path twice. Decided in Phase 9.
 6. **Every mutating tool declares the domains it affects** — `playback`, `queue`, `catalog_curation`
    — and is ordered only against those (FR-038, R7). `playback.next`/`previous` declare `playback` and
    `queue`; `activity.undo` takes the domains of the entry it reverses. A mutating tool declaring none is
@@ -73,7 +76,7 @@ Domain `catalog_curation`. Declared by the browse view.
 
 | Tool | Input | Returns | Notes |
 |---|---|---|---|
-| `catalog.search` | `{ query, publishedAfter?, publishedBefore?, maxResults? }` | `{ results[], criteriaApplied, quotaRemaining }` | **Spends quota** (R2). `quota_exhausted` when none left; loaded results stay usable (FR-022) |
+| `catalog.search` | `{ query, publishedAfter?, publishedBefore? }` — no `maxResults` until the client and backend honour it (Phase 9) | `{ results[], criteriaApplied, quotaRemaining }` | **Spends quota** (R2). `quota_exhausted` when none left; loaded results stay usable (FR-022) |
 | `catalog.narrow` | `{ maxDurationSeconds?, minDurationSeconds?, publishedAfter?, publishedBefore?, titleContains? }` | `{ results[], criteriaApplied, narrowedFrom: "current_results" }` | **Spends no quota.** Operates on the current result set (FR-016). The quota-preservation path |
 | `catalog.getCurrentResults` | `{}` | `{ results[], criteriaApplied }` | Read-only |
 | `catalog.resolveReference` | `{ reference: string }` | `{ videoId }` or `{ candidates[] }` | "the third one", "the shortest". Returns candidates instead of choosing when ambiguous (FR-018) |
@@ -91,7 +94,7 @@ Domain `queue`.
 | Tool | Input | Returns | Notes |
 |---|---|---|---|
 | `queue.add` | `{ videoIds: string[], position?: "next" \| "end" }` | `{ queue }` | >5 items requires confirmation (FR-027) |
-| `queue.remove` | `{ videoIds: string[] }` | `{ queue }` | |
+| `queue.remove` | `{ videoIds: string[] }` or `{ entryIds: string[] }` — exactly one | `{ queue }` | By video removes every occurrence; by entry removes exactly that one. The queue may hold a video twice, and its Remove button means one occurrence |
 | `queue.reorder` | `{ videoId, toIndex }` | `{ queue }` | |
 | `queue.clear` | `{}` | `{ queue }` | `confirmation: 'required'` when the queue holds >5 (FR-027) |
 | `queue.get` | `{}` | `{ queue }` | Read-only |

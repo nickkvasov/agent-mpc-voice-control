@@ -4,7 +4,10 @@ import type { ToolName } from '../vocab/tool-names.ts';
 import type { Effect } from '../activity/effects.ts';
 
 /**
- * The single recorded invocation boundary for LOCAL calls.
+ * The single recorded invocation boundary for every call that reaches a
+ * handler — buttons, the matcher, and since Phase 9 the assistant's calls too.
+ * Calls refused before any handler ran are recorded by the provider's observer
+ * instead (`activity/from-observed-call.ts`), so each call has one entry.
  *
  * Gate C found that typed commands and control buttons called the tool
  * functions directly, bypassing the activity recorder entirely — the recorder is
@@ -34,6 +37,8 @@ export async function invokeRecorded<T>(
    * it reported "Undid: Search" while removing a collection member (Gate B).
    */
   effectOf: ((value: T) => Effect | null) | null = null,
+  /** The command this call serves (research R7). Null only for calls with no command. */
+  commandId: string | null = null,
 ): Promise<ToolResult<T>> {
   counter += 1;
   const callId = `local:${String(counter)}`;
@@ -43,6 +48,7 @@ export async function invokeRecorded<T>(
       isRefusal(result)
         ? {
             callId,
+            commandId,
             toolName: tool,
             arguments: input,
             description: describe,
@@ -52,6 +58,7 @@ export async function invokeRecorded<T>(
           }
         : {
             callId,
+            commandId,
             toolName: tool,
             arguments: input,
             description: describe,
@@ -65,6 +72,7 @@ export async function invokeRecorded<T>(
     // an action nobody can account for (SC-006, IMMUNE-E).
     recorder.record({
       callId,
+      commandId,
       toolName: tool,
       arguments: input,
       description: describe,

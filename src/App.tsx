@@ -1,48 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Controls } from './player/controls.tsx';
 import { CommandInput } from './app/command-input.tsx';
 import { Interpretation } from './app/interpretation.tsx';
 import { PushToTalk } from './voice/push-to-talk.tsx';
 import { matchPlaybackCommand } from './matcher/playback-matcher.ts';
 import { playerStateFromCode, PLAYER_STATE } from './vocab/player-states.ts';
-import { ActivityRecorder, createInMemoryActivityStore } from './activity/record-writer.ts';
-import { invokeRecorded } from './app/invoke.ts';
-import { CommandChain } from './app/command-chain.ts';
+import { recorder } from './activity/recorder.ts';
 import { ResultsView } from './catalog/results-view.tsx';
 import { RecordView } from './activity/record-view.tsx';
 import { CurationView } from './curation/curation-view.tsx';
 import { PrivacyDisclosure } from './app/privacy-disclosure.tsx';
 import { ConnectionStatus, type ConnectionState } from './mcp/connection-status.tsx';
 import { HistoryControls } from './app/history-controls.tsx';
-import { refuseUnsupportedCapability } from './mcp/tool-availability.ts';
-import {
-  createCollection, deleteCollection, EMPTY_COLLECTIONS, type CollectionsState,
-} from './curation/collections.ts';
-import { resolveCountedConfirmation, resolveConfirmation } from './mcp/confirmation-resolver.ts';
-import { addToCollection, removeFromCollection, type Collection } from './curation/collections.ts';
-import { setLabel, addTag } from './curation/annotations.ts';
+import { EMPTY_COLLECTIONS, type Collection, type CollectionsState } from './curation/collections.ts';
 import { applyCollectionUndo } from './curation/restore.ts';
 import { applyAnnotationUndo } from './curation/annotation-restore.ts';
 import { openStores } from './store/indexeddb.ts';
-import { undoEntry } from './activity/undo.ts';
 import { applyQueueUndo } from './queue/restore.ts';
 import type { DescribableEntry } from './activity/describe.ts';
 import { describeRecent } from './activity/describe.ts';
 import { QueueView } from './queue/queue-view.tsx';
-import { EMPTY, narrowLocally, type ResultSet } from './catalog/results.ts';
-import { searchCatalog, type QuotaView } from './catalog/client.ts';
-import { add as queueAdd, removeEntries, EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
-import { TOOL } from './vocab/tool-names.ts';
-import { pause, play, stop } from './player/tools/transport.ts';
-import { seek } from './player/tools/seek.ts';
-import { setMuted, setRate, setVolume } from './player/tools/rate-volume.ts';
-import { setCaptions } from './player/tools/captions.ts';
+import { EMPTY, type ResultSet } from './catalog/results.ts';
+import type { QuotaView } from './catalog/client.ts';
+import { EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
+import { TOOL, type ToolName } from './vocab/tool-names.ts';
 import type { YouTubePlayer } from './player/player.ts';
-import { isRefusal, refuse, type ToolResult } from './mcp/result.ts';
-import { REFUSAL_REASON } from './vocab/refusal-reasons.ts';
+import type { ToolResult } from './mcp/result.ts';
+import { CommandRegistry, COMMAND_ROUTE, type CommandRoute } from './app/commands.ts';
+import { issueText } from './app/command-intake.ts';
+import { DomainScheduler } from './app/issue-fence.ts';
+import { createToolActions, type ToolActions } from './app/tool-actions.ts';
+import { ToolSurfaceProvider } from './mcp/declared-tools.tsx';
 
-/** Local calls and agent calls write to the same record (SC-006). */
-const recorder = new ActivityRecorder(createInMemoryActivityStore());
 
 /**
  * US1: control playback by speaking or typing.
@@ -162,6 +151,15 @@ export function App() {
    * claiming "connecting" forever would leave a person waiting for something
    * that is not coming (FR-037).
    */
+  /**
+   * Panels a person can close. Tools are declared by the view that shows them,
+   * so a closed panel's tools do not exist — FR-035 as a consequence of the
+   * structure. Before Phase 9 every view was permanently mounted, so "the view
+   * is not open" could never happen and was never exercised.
+   */
+  const [showCollections, setShowCollections] = useState(true);
+  const [showQueue, setShowQueue] = useState(true);
+
   const [connection] = useState<ConnectionState>('unavailable');
   const connectionReason = 'No agent gateway is configured for this deployment yet.';
 
@@ -227,157 +225,82 @@ export function App() {
     );
   }, []);
 
-  /** One order for voice, typing and buttons alike (FR-038). */
-  const chain = useRef<CommandChain | null>(null);
-  chain.current ??= new CommandChain({
-    onError: (cause) => setOutcome(`That command failed: ${String(cause)}`),
-  });
-
-  const run = useCallback(
-    async (text: string, modality: 'voice' | 'text') => {
-      setHeard(text);
-      const receivedAt = Date.now();
-      const m = matchPlaybackCommand(text);
-      /**
-       * Written AFTER the handler runs, with what actually happened.
-       *
-       * Appending on match recorded "applied" for commands the handler then
-       * refused — `pause` with nothing playing, for instance — so the stored
-       * history contradicted both the screen and the activity record (Gate C).
-       */
-      const persist = (outcome: 'applied' | 'refused', refusalReason: string | null): void => {
-        void stores.current?.stores.commands
-          .append({
-            commandId: `cmd${String(receivedAt)}`,
-            modality,
-            rawText: text,
-            interpretation: m.matched ? m.match.interpretation : 'not understood',
-            route: m.matched ? 'local_matcher' : 'agent',
-            receivedAt,
-            outcome,
-            refusalReason,
-          })
-          .then(async () => {
-            const all = await stores.current?.stores.commands.all();
-            setCommandCount(all?.length ?? 0);
-          });
-      };
-      if (!m.matched) {
-        // The matcher never guesses. With no agent connected there is nowhere
-        // to fall through to, so this is refused with a reason (FR-034/FR-037).
-        setInterpretation(null);
-        // Named reason, not a shrug: the matcher declined and there is nowhere
-        // to fall through to (FR-034, FR-037).
-        setOutcome(
-          'Not a playback command, and the assistant is not connected, so nothing was done. Everything here still works by hand.',
-        );
-        persist('refused', 'no_match');
-        return;
-      }
-      setInterpretation(m.match.interpretation);
-      const ctx = { adPlaying: false, hasVideo: true };
-      const i = m.match.input;
-      const call = (): Promise<ToolResult<unknown>> | ToolResult<unknown> => {
-        switch (m.match.tool) {
-          case TOOL.playbackPlay: return play(p, ctx);
-          case TOOL.playbackPause: return pause(p, ctx);
-          case TOOL.playbackStop: return stop(p, ctx);
-          case TOOL.playbackSeek: return seek(p, ctx, i['mode'] as 'relative' | 'absolute', i['seconds'] as number);
-          case TOOL.playbackSetRate: return setRate(p, i['rate'] as number);
-          case TOOL.playbackSetVolume: return setVolume(p, i['volume'] as number);
-          case TOOL.playbackSetMuted: return setMuted(p, i['muted'] as boolean);
-          case TOOL.playbackSetCaptions: return setCaptions(p, { enabled: i['enabled'] as boolean });
-          // Not built yet — which is NOT the same as "the view is closed".
-          // The player is on screen; telling someone to open it would
-          // recommend an action that cannot help (Gate C).
-          default: return refuseUnsupportedCapability(m.match.tool);
-        }
-      };
-      // Through the recorded boundary, so a local command leaves an entry just
-      // as an agent call does.
-      let r: ToolResult<unknown>;
-      try {
-        r = await invokeRecorded(recorder, m.match.tool, i, m.match.interpretation, call);
-      } catch (cause) {
-        // invokeRecorded records the failure and RETHROWS. Without this the
-        // persist below was skipped entirely, so a command whose handler threw
-        // vanished from retained history on the next reload — the negative
-        // evidence IMMUNE-E requires, kept only in memory (Gate C).
-        persist('refused', 'handler_threw');
-        setOutcome(`That command failed: ${String(cause)}`);
-        refreshActivity();
-        bump();
-        throw cause;
-      }
-      setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
-      persist(isRefusal(r) ? 'refused' : 'applied', isRefusal(r) ? r.reason : null);
-      refreshActivity();
-      bump();
-    },
-    [p, bump],
-  );
-
-  const enqueue = useCallback(
-    (resolveText: () => Promise<string>, modality: 'voice' | 'text') => {
-      chain.current?.enqueue(resolveText, (text) => run(text, modality));
-    },
-    [run],
-  );
+  // The record view follows the record, whoever writes to it.
+  useEffect(() => recorder.subscribe(refreshActivity), [refreshActivity]);
 
   /**
-   * Discovery goes through the same ordering boundary as everything else
-   * (FR-038) and the same recorded boundary (SC-006). Both were bypassed: a
-   * slow search could overwrite a newer one, and no catalog or queue action
-   * left an activity entry at all (Gate C).
+   * Latest-value refs the actions read, so an action issued earlier never acts
+   * on a snapshot taken when it was created (the Phase 4 and Phase 6 lesson).
    */
-  const doSearch = useCallback((query: string) => {
-    chain.current?.enqueue(
-      () => Promise.resolve(query),
-      async (q) => {
-        const r = await invokeRecorded(recorder, TOOL.catalogSearch, { query: q }, `Search for "${q}"`, () =>
-          searchCatalog({ query: q }),
-        );
-        if (!r.ok) {
-          setOutcome(`Refused: ${r.detail}`);
-          // The refusal IS evidence and was recorded; without this it stayed
-          // invisible until some later action happened to refresh the panel.
-          refreshActivity();
-          return;
-        }
-        setQuota(r.value.quota);
-        setResults({
-          items: r.value.items,
-          criteria: r.value.criteriaApplied,
-          operation: 'fresh_search',
-          fromCache: r.value.fromCache,
-          setAsideUnknown: 0,
-        });
-        setOutcome(`Found ${String(r.value.items.length)}.`);
-        refreshActivity();
-      },
-    );
-  }, [refreshActivity]);
+  const resultsRef = useRef<ResultSet>(EMPTY);
+  resultsRef.current = results;
+  const quotaRef = useRef<QuotaView>(quota);
+  quotaRef.current = quota;
+  const changedRef = useRef<() => void>(() => {});
+  changedRef.current = () => {
+    refreshActivity();
+    bump();
+  };
 
-  const doNarrow = useCallback((maxMinutes: number) => {
-    chain.current?.enqueue(
-      () => Promise.resolve(String(maxMinutes)),
-      async () => {
-        // Local: spends no allowance (research.md R2).
-        await invokeRecorded(
-          recorder,
-          TOOL.catalogNarrow,
-          { maxDurationSeconds: maxMinutes * 60 },
-          `Narrow to under ${String(maxMinutes)} minutes`,
-          () => {
-            setResults((cur) => narrowLocally(cur, { maxDurationSeconds: maxMinutes * 60 }));
-            return { ok: true as const, value: null };
-          },
-        );
-        setOutcome(`Narrowed to under ${String(maxMinutes)} minutes.`);
-        refreshActivity();
+  /** The one owner of commands and their order (FR-038, research R7). */
+  const commands = useRef<CommandRegistry | null>(null);
+  commands.current ??= new CommandRegistry();
+  const scheduler = useRef<DomainScheduler | null>(null);
+  scheduler.current ??= new DomainScheduler(commands.current);
+
+  /** Every tool as one function of (command, input) — buttons, matcher and assistant alike. */
+  const actionsRef = useRef<ToolActions | null>(null);
+  actionsRef.current ??= createToolActions({
+    recorder,
+    scheduler: scheduler.current,
+    player: () => p,
+    playback: () => ({ adPlaying: false, hasVideo: true }),
+    results: {
+      get: () => resultsRef.current,
+      set: (next) => {
+        resultsRef.current = next;
+        setResults(next);
       },
-    );
-  }, [refreshActivity]);
+    },
+    videos: () =>
+      resultsRef.current.items.map((v) => {
+        const mine = annotationsRef.current.get(v.videoId);
+        return mine === undefined ? v : { ...v, label: mine.label, tags: mine.tags };
+      }),
+    annotations: {
+      get: () => annotationsRef.current,
+      annotate,
+      replace: (next) => {
+        annotationsRef.current = next;
+        setAnnotations(next);
+      },
+    },
+    queue: {
+      get: () => queueRef.current,
+      set: (next) => {
+        queueRef.current = next;
+        setQueue(next);
+      },
+    },
+    collections: {
+      get: () => collectionsRef.current,
+      commit: commitCollections,
+      remember: (c) => deletedCollections.current.set(c.collectionId, c),
+      deleted: (id) => deletedCollections.current.get(id),
+    },
+    quota: {
+      get: () => quotaRef.current,
+      set: (next) => {
+        quotaRef.current = next;
+        setQuota(next);
+      },
+    },
+    restore: { queue: applyQueueUndo, annotations: applyAnnotationUndo, collections: applyCollectionUndo },
+    ask: (question) => globalThis.prompt?.(question) ?? null,
+    changed: () => changedRef.current(),
+  });
+  const actions = actionsRef.current;
+  const surface = useMemo(() => ({ actions, commands: commands.current as CommandRegistry }), [actions]);
 
   /**
    * Holds the queue as it is NOW.
@@ -390,111 +313,94 @@ export function App() {
   const queueRef = useRef<QueueState>(EMPTY_QUEUE);
   queueRef.current = queue;
 
-  const queueAction = useCallback(
-    (
-      label: string,
-      tool: typeof TOOL.queueAdd | typeof TOOL.queueRemove,
-      args: Record<string, unknown>,
-      run: (current: QueueState) => ReturnType<typeof queueAdd>,
-    ) => {
-      chain.current?.enqueue(
-        () => Promise.resolve(label),
-        async () => {
-          const before = new Set(queueRef.current.items.map((e) => e.entryId));
-          const snapshot = queueRef.current.items;
-          const r = await invokeRecorded(
-            recorder, tool, args, label, () => run(queueRef.current),
-            // Discovered from what actually changed, and attached by the writer
-            // itself so it cannot land on a previous entry.
-            (value) => {
-              const appeared = value.items.find((e) => !before.has(e.entryId));
-              if (appeared !== undefined) {
-                return { kind: 'queue_occurrence', entryId: appeared.entryId, added: true, videoId: appeared.videoId, order: appeared.order };
-              }
-              const gone = snapshot.find((e) => !value.items.some((n) => n.entryId === e.entryId));
-              return gone === undefined
-                ? null
-                : { kind: 'queue_occurrence', entryId: gone.entryId, added: false, videoId: gone.videoId, order: gone.order };
-            },
-          );
-          setOutcome(r.ok ? `${label}.` : `Refused: ${r.detail}`);
-          if (r.ok) {
-            queueRef.current = r.value;
-            setQueue(r.value);
-          }
-          refreshActivity();
-        },
-      );
+  /**
+   * A button press: the command is issued NOW, synchronously, so its place in
+   * its domain is the moment it was pressed, not the moment it runs.
+   */
+  const perform = useCallback(
+    async (
+      tool: ToolName,
+      input: Record<string, unknown>,
+      describeOutcome: (value: unknown) => string,
+      route: CommandRoute = COMMAND_ROUTE.manual,
+    ): Promise<ToolResult<unknown>> => {
+      const registry = commands.current as CommandRegistry;
+      const command = registry.issue(route);
+      try {
+        const r = await actions[tool](command, input);
+        setOutcome(r.ok ? describeOutcome(r.value) : `Refused: ${r.detail}`);
+        return r;
+      } catch (cause) {
+        setOutcome(`That command failed: ${String(cause)}`);
+        throw cause;
+      } finally {
+        registry.finish(command.commandId);
+      }
     },
-    [refreshActivity],
+    [actions],
   );
 
   /**
-   * Undo goes through the same ordering boundary as everything else (FR-038):
-   * pressing it while a transcript is pending used to let it overtake the
-   * earlier command. The target and the history are re-read when it RUNS, not
-   * when the button was pressed.
+   * A spoken or typed command, issued before its text exists (command-intake.ts).
    */
-  const undoAction = useCallback(
-    (entryId: string) => {
-      chain.current?.enqueue(
-        () => Promise.resolve(entryId),
-        async () => {
-          const entries = recorder.entries();
-          const target = entries.find((e) => e.entryId === entryId);
-          if (target === undefined) {
-            setOutcome('That entry is no longer in the record.');
-            refreshActivity();
+  const onText = useCallback(
+    (resolveText: () => Promise<string>, modality: 'voice' | 'text', route: CommandRoute) => {
+      issueText(commands.current as CommandRegistry, route, resolveText, {
+        failed: (_command, cause) => setOutcome(`That command failed: ${String(cause)}`),
+        run: async (command, text) => {
+          setHeard(text);
+          const m = matchPlaybackCommand(text);
+          /**
+           * Written AFTER the handler runs, with what actually happened.
+           *
+           * Appending on match recorded "applied" for commands the handler then
+           * refused — `pause` with nothing playing, for instance — so the stored
+           * history contradicted both the screen and the activity record (Gate C).
+           */
+          const persist = (outcome: 'applied' | 'refused', refusalReason: string | null): void => {
+            void stores.current?.stores.commands
+              .append({
+                commandId: command.commandId,
+                modality,
+                rawText: text,
+                interpretation: m.matched ? m.match.interpretation : 'not understood',
+                route: m.matched ? 'local_matcher' : 'agent',
+                receivedAt: command.issuedAt,
+                outcome,
+                refusalReason,
+              })
+              .then(async () => {
+                const all = await stores.current?.stores.commands.all();
+                setCommandCount(all?.length ?? 0);
+              });
+          };
+          if (!m.matched) {
+            // The matcher never guesses. With no agent connected there is nowhere
+            // to fall through to, so this is refused with a reason (FR-034/FR-037).
+            setInterpretation(null);
+            setOutcome(
+              'Not a playback command, and the assistant is not connected, so nothing was done. Everything here still works by hand.',
+            );
+            persist('refused', 'no_match');
             return;
           }
-          // Through the recorded boundary, so a REFUSED undo leaves evidence
-          // too — a refusal that vanishes is the gap this record exists to close.
-          const r = await invokeRecorded(
-            recorder,
-            TOOL.activityUndo,
-            { entryId },
-            `Undo: ${target.description}`,
-            () =>
-              undoEntry({ ...target, entryId: target.entryId, description: target.description }, entries, {
-                apply: (effect) => {
-                  // Both restoration paths are module functions, not inline
-                  // here, so tests can drive what the app runs.
-                  if (effect.kind === 'queue_occurrence') {
-                    const next = applyQueueUndo(queueRef.current, effect);
-                    if (next === null) return false;
-                    queueRef.current = next;
-                    setQueue(next);
-                    return true;
-                  }
-                  if (effect.kind === 'label' || effect.kind === 'tag') {
-                    const next = applyAnnotationUndo(annotationsRef.current, effect);
-                    if (next === null) return false;
-                    annotationsRef.current = next;
-                    setAnnotations(next);
-                    return true;
-                  }
-                  const restored = applyCollectionUndo(
-                    collectionsRef.current,
-                    effect,
-                    effect.kind === 'collection_existence' ? deletedCollections.current.get(effect.collectionId) : undefined,
-                  );
-                  if (restored === null) return false;
-                  commitCollections(restored);
-                  return true;
-                },
-              }),
-          );
-          if (r.ok) {
-            recorder.markUndone(entryId);
-            setOutcome(r.value.description);
-          } else {
-            setOutcome(`Refused: ${r.detail}`);
+          setInterpretation(m.match.interpretation);
+          let r: ToolResult<unknown>;
+          try {
+            r = await actions[m.match.tool](command, m.match.input);
+          } catch (cause) {
+            // The action recorded the failure and rethrew. Without this the
+            // persist was skipped, so a command whose handler threw vanished
+            // from retained history on the next reload (Gate C).
+            persist('refused', 'handler_threw');
+            throw cause;
           }
-          refreshActivity();
+          setOutcome(r.ok ? 'Done.' : `Refused: ${r.detail}`);
+          persist(r.ok ? 'applied' : 'refused', r.ok ? null : r.reason);
         },
-      );
+      });
     },
-    [refreshActivity],
+    [actions],
   );
 
   /** Catalog facts with the person's annotations laid over them. */
@@ -509,11 +415,15 @@ export function App() {
     : '';
 
   return (
+    <ToolSurfaceProvider surface={surface}>
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
       <h1>Voice Video Control</h1>
       <ConnectionStatus state={connection} reason={connection === 'unavailable' ? connectionReason : null} />
-      <PushToTalk onUtterance={(pending) => enqueue(() => pending, 'voice')} onAvailabilityChange={setVoiceAvailable} />
-      <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t), 'text')} />
+      <PushToTalk
+        onUtterance={(pending) => onText(() => pending, 'voice', COMMAND_ROUTE.voice)}
+        onAvailabilityChange={setVoiceAvailable}
+      />
+      <CommandInput onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.text)} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
       <section data-testid="discovery" style={{ margin: '0.5rem 0' }}>
         <form
@@ -521,14 +431,20 @@ export function App() {
           onSubmit={(e) => {
             e.preventDefault();
             const q = new FormData(e.currentTarget).get('q');
-            if (typeof q === 'string' && q.trim() !== '') void doSearch(q);
+            if (typeof q === 'string' && q.trim() !== '') {
+              void perform(TOOL.catalogSearch, { query: q }, (v) => `Found ${String((v as { results: unknown[] }).results.length)}.`);
+            }
           }}
         >
           <label>
             Search the catalog <input name="q" data-testid="search-input" placeholder="state machines" />
           </label>{' '}
           <button type="submit" data-testid="search-submit">Search</button>{' '}
-          <button type="button" data-testid="narrow-short" onClick={() => doNarrow(10)}>
+          <button
+            type="button"
+            data-testid="narrow-short"
+            onClick={() => void perform(TOOL.catalogNarrow, { maxDurationSeconds: 600 }, () => 'Narrowed to under 10 minutes.')}
+          >
             Only the short ones
           </button>
         </form>
@@ -542,185 +458,58 @@ export function App() {
           // to whichever collection happened to be selected when the queue
           // drained, not the one chosen when the button was pressed (Gate C).
           const wanted = destinationRef.current ?? collectionsRef.current.items[0]?.collectionId ?? null;
-          chain.current?.enqueue(
-            () => Promise.resolve(id),
-            async () => {
-              if (wanted === null) {
-                setOutcome('Create a collection first.');
-                return;
-              }
-              const chosen = collectionsRef.current.items.find((c) => c.collectionId === wanted);
-              if (chosen === undefined) {
-                // Refused rather than substituting a different collection — and
-                // RECORDED, because a refusal that leaves no entry is an action
-                // nobody can account for afterwards (SC-006).
-                const r = await invokeRecorded(
-                  recorder, TOOL.curationAddToCollection, { collectionId: wanted, videoIds: [id] },
-                  `Add ${id} to a collection that no longer exists`,
-                  () => refuse(REFUSAL_REASON.noSuchVideo, 'The collection you chose no longer exists.'),
-                );
-                setOutcome(isRefusal(r) ? `Refused: ${r.detail}` : 'Done.');
-                refreshActivity();
-                return;
-              }
-              const first = chosen;
-              const r = await invokeRecorded(
-                recorder, TOOL.curationAddToCollection, { collectionId: first.collectionId, videoIds: [id] },
-                `Add ${id} to "${first.name}"`,
-                () => {
-                  const done = addToCollection(collectionsRef.current, first.collectionId, [id]);
-                  if (done.ok) commitCollections(done.value.state);
-                  return done;
-                },
-                (v) => ({
-                  kind: 'collection_member',
-                  collectionId: first.collectionId,
-                  videoId: id,
-                  added: true,
-                  index: v.state.items.find((c) => c.collectionId === first.collectionId)?.videoIds.indexOf(id) ?? 0,
-                }),
-              );
-              setOutcome(r.ok ? `Added to "${first.name}".` : `Refused: ${r.detail}`);
-              refreshActivity();
-            },
-          );
+          if (wanted === null) {
+            setOutcome('Create a collection first.');
+            return;
+          }
+          const name = collectionsRef.current.items.find((c) => c.collectionId === wanted)?.name ?? wanted;
+          void perform(TOOL.curationAddToCollection, { collectionId: wanted, videoIds: [id] }, () => `Added to "${name}".`);
         }}
-        onQueue={(id) =>
-          // FR-029: the entry must name what it acted on, not just "Queued".
-          queueAction(`Queued ${id}`, TOOL.queueAdd, { videoIds: [id] }, (cur) => queueAdd(cur, [id]))
-        }
+        onQueue={(id) => void perform(TOOL.queueAdd, { videoIds: [id] }, () => `Queued ${id}.`)}
       />
-      <CurationView
-        collections={collections.items}
-        videos={annotated}
-        storageDurable={storageDurable}
-        destination={destination ?? collections.items[0]?.collectionId ?? null}
-        onChooseDestination={setDestination}
-        onRemoveVideo={(collectionId, videoId) =>
-          chain.current?.enqueue(
-            () => Promise.resolve(videoId),
-            async () => {
-              const target = collectionsRef.current.items.find((c) => c.collectionId === collectionId);
-              const removedFrom = target?.videoIds.indexOf(videoId) ?? 0;
-              // FR-026: names the specific target before it discards anything.
-              const answer = globalThis.prompt?.(`Remove ${videoId} from "${target?.name ?? collectionId}"?`);
-              const confirmed = resolveConfirmation(answer) === 'confirmed';
-              const r = await invokeRecorded(
-                recorder, TOOL.curationRemoveFromCollection, { collectionId, videoId },
-                `Remove ${videoId} from "${target?.name ?? collectionId}"`,
-                () => {
-                  const done = removeFromCollection(collectionsRef.current, collectionId, [videoId], confirmed);
-                  if (done.ok) commitCollections(done.value.state);
-                  return done;
-                },
-                () => ({
-                  kind: 'collection_member',
-                  collectionId,
-                  videoId,
-                  added: false,
-                  // Captured BEFORE the removal, so the inverse can put it back.
-                  index: removedFrom,
-                }),
-              );
-              setOutcome(r.ok ? 'Removed.' : `Refused: ${r.detail}`);
-              refreshActivity();
-            },
-          )
-        }
-        onLabel={(videoId) =>
-          chain.current?.enqueue(
-            () => Promise.resolve(videoId),
-            async () => {
-              const video = annotated.find((v) => v.videoId === videoId);
-              if (video === undefined) return;
-              const answer = globalThis.prompt?.(`A label for "${video.title}"? Leave blank to clear it.`);
-              if (answer === null || answer === undefined) return;
-              const r = await invokeRecorded(
-                recorder, TOOL.curationSetLabel, { videoId, label: answer },
-                `Label ${videoId}`,
-                () => {
-                  const done = setLabel(video, answer.trim() === '' ? null : answer);
-                  if (done.ok) annotate(videoId, { label: done.value.label });
-                  return done;
-                },
-                (v) => ({ kind: 'label', videoId, from: v.previousLabel, to: v.label }),
-              );
-              setOutcome(r.ok ? `Labelled — the video is still "${r.value.sourceTitle}" on YouTube.` : `Refused: ${r.detail}`);
-              refreshActivity();
-            },
-          )
-        }
-        onTag={(videoId) =>
-          chain.current?.enqueue(
-            () => Promise.resolve(videoId),
-            async () => {
-              const video = annotated.find((v) => v.videoId === videoId);
-              if (video === undefined) return;
-              const answer = globalThis.prompt?.(`A tag for "${video.title}"?`);
-              if (answer === null || answer === undefined || answer.trim() === '') return;
-              const r = await invokeRecorded(
-                recorder, TOOL.curationAddTags, { videoId, tag: answer },
-                `Tag ${videoId} "${answer.trim()}"`,
-                () => {
-                  const done = addTag([video], answer);
-                  if (done.ok) annotate(videoId, { tags: [...video.tags, done.value.tag] });
-                  return done;
-                },
-                (v) => ({ kind: 'tag', videoId, tag: v.tag, added: true }),
-              );
-              setOutcome(r.ok ? `Tagged "${r.value.tag}".` : `Refused: ${r.detail}`);
-              refreshActivity();
-            },
-          )
-        }
-        onCreate={(name) =>
-          chain.current?.enqueue(
-            () => Promise.resolve(name),
-            async () => {
-              const r = await invokeRecorded(
-                recorder, TOOL.curationCreateCollection, { name }, `Created collection "${name}"`,
-                () => {
-                  const made = createCollection(collectionsRef.current, name);
-                  if (made.ok) commitCollections(made.value.state);
-                  return made;
-                },
-              );
-              setOutcome(r.ok ? `Created "${name}".` : `Refused: ${r.detail}`);
-              refreshActivity();
-            },
-          )
-        }
-        onDelete={(collectionId) =>
-          chain.current?.enqueue(
-            () => Promise.resolve(collectionId),
-            async () => {
-              const target = collectionsRef.current.items.find((c) => c.collectionId === collectionId);
-              const count = target?.videoIds.length ?? 0;
-              // FR-027: the COUNT must be said back, not merely approved. The
-              // prompt names the collection and the number it holds.
-              const answer = globalThis.prompt?.(
-                `Delete "${target?.name ?? collectionId}" and the ${String(count)} video${count === 1 ? '' : 's'} in it? Type the number to confirm.`,
-              );
-              const confirmed = resolveCountedConfirmation(answer, count) === 'confirmed';
-              const r = await invokeRecorded(
-                recorder, TOOL.curationDeleteCollection, { collectionId, confirmed },
-                `Delete collection "${target?.name ?? collectionId}"`,
-                () => {
-                  const done = deleteCollection(collectionsRef.current, collectionId, confirmed ? count : undefined);
-                  if (done.ok) {
-                    deletedCollections.current.set(collectionId, done.value.deleted);
-                    commitCollections(done.value.state);
-                  }
-                  return done;
-                },
-                () => ({ kind: 'collection_existence', collectionId, created: false }),
-              );
-              setOutcome(r.ok ? `Deleted "${target?.name ?? collectionId}".` : `Refused: ${r.detail}`);
-              refreshActivity();
-            },
-          )
-        }
-      />
+      <p style={{ margin: '0.25rem 0' }}>
+        <button type="button" data-testid="toggle-collections" onClick={() => setShowCollections((v) => !v)}>
+          {showCollections ? 'Hide collections' : 'Show collections'}
+        </button>{' '}
+        <button type="button" data-testid="toggle-queue" onClick={() => setShowQueue((v) => !v)}>
+          {showQueue ? 'Hide queue' : 'Show queue'}
+        </button>
+      </p>
+      {showCollections && (
+        <CurationView
+          collections={collections.items}
+          videos={annotated}
+          storageDurable={storageDurable}
+          destination={destination ?? collections.items[0]?.collectionId ?? null}
+          onChooseDestination={setDestination}
+          onRemoveVideo={(collectionId, videoId) =>
+            void perform(TOOL.curationRemoveFromCollection, { collectionId, videoIds: [videoId] }, () => 'Removed.')
+          }
+          onLabel={(videoId) => {
+            const video = annotated.find((v) => v.videoId === videoId);
+            if (video === undefined) return;
+            const answer = globalThis.prompt?.(`A label for "${video.title}"? Leave blank to clear it.`);
+            if (answer === null || answer === undefined) return;
+            void perform(
+              TOOL.curationSetLabel,
+              { videoId, label: answer.trim() === '' ? null : answer },
+              (v) => `Labelled — the video is still "${(v as { sourceTitle: string }).sourceTitle}" on YouTube.`,
+            );
+          }}
+          onTag={(videoId) => {
+            const video = annotated.find((v) => v.videoId === videoId);
+            if (video === undefined) return;
+            const answer = globalThis.prompt?.(`A tag for "${video.title}"?`);
+            if (answer === null || answer === undefined || answer.trim() === '') return;
+            void perform(TOOL.curationAddTags, { videoIds: [videoId], tags: [answer] }, () => `Tagged "${answer.trim().toLowerCase()}".`);
+          }}
+          onCreate={(name) => void perform(TOOL.curationCreateCollection, { name }, () => `Created "${name}".`)}
+          onDelete={(collectionId) => {
+            const name = collectionsRef.current.items.find((c) => c.collectionId === collectionId)?.name ?? collectionId;
+            void perform(TOOL.curationDeleteCollection, { collectionId }, () => `Deleted "${name}".`);
+          }}
+        />
+      )}
       <HistoryControls
         commandCount={commandCount}
         onClear={() => {
@@ -753,25 +542,23 @@ export function App() {
               : `Cannot be restored: a collection called "${clash.name}" now uses that name.`;
           },
         }}
-        onUndo={(entryId) => undoAction(entryId)}
+        onUndo={(entryId) =>
+          void perform(TOOL.activityUndo, { entryId }, (v) => (v as { description: string }).description)
+        }
       />
       <p data-testid="what-did-you-do" style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'pre-line' }}>
         {describeRecent(activity, 3)}
       </p>
-      <QueueView
-        queue={queue}
-        onRemoveEntry={(entryId) => {
-          // The label names the video as it was when clicked; the mutation
-          // targets the entryId, which cannot drift if the queue changes first.
-          const videoId = queueRef.current.items.find((e) => e.entryId === entryId)?.videoId ?? 'unknown';
-          queueAction(
-            `Removed ${videoId} from the queue`,
-            TOOL.queueRemove,
-            { entryId, videoId },
-            (cur) => removeEntries(cur, [entryId]),
-          );
-        }}
-      />
+      {showQueue && (
+        <QueueView
+          queue={queue}
+          onRemoveEntry={(entryId) => {
+            // Removes that ONE occurrence; the queue may hold a video twice.
+            const videoId = queueRef.current.items.find((e) => e.entryId === entryId)?.videoId ?? 'unknown';
+            void perform(TOOL.queueRemove, { entryIds: [entryId] }, () => `Removed ${videoId} from the queue.`);
+          }}
+        />
+      )}
       {/* Controls read state through the shared mapper, so they cannot disagree
           with what the tools reported. */}
       <Controls
@@ -782,9 +569,10 @@ export function App() {
         volume={p.getVolume()}
         muted={p.isMuted()}
         captionsTrack={track === '' ? null : track}
-        onCommand={(t) => enqueue(() => Promise.resolve(t), 'text')}
+        onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.manual)}
       />
       <PrivacyDisclosure voiceAvailable={voiceAvailable} assistantConnected={connection === 'connected'} />
     </main>
+    </ToolSurfaceProvider>
   );
 }

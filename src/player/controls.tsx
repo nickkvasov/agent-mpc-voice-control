@@ -1,3 +1,5 @@
+import { DeclaredTools } from '../mcp/declared-tools.tsx';
+import { VIEW_TOOLS } from '../mcp/tool-descriptions.ts';
 import type { PlayerState } from '../vocab/player-states.ts';
 
 /**
@@ -19,6 +21,8 @@ export interface ControlsProps {
 export function Controls(p: ControlsProps) {
   return (
     <section data-testid="controls" style={{ margin: '0.5rem 0' }}>
+      {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
+      <DeclaredTools tools={VIEW_TOOLS.player} />
       <div>
         <button type="button" data-testid="btn-play" onClick={() => p.onCommand('play')}>Play</button>{' '}
         <button type="button" data-testid="btn-pause" onClick={() => p.onCommand('pause')}>Pause</button>{' '}

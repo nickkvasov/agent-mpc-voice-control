@@ -22,6 +22,16 @@ export const REFUSAL_REASON = {
   argumentsInvalid: 'arguments_invalid',
   /** The effect could not be read back, so no success may be claimed. See T037. */
   effectUnverifiable: 'effect_unverifiable',
+  /** FR-038: a newer command already applied in this domain. The detail names it. */
+  overtakenByNewerCommand: 'overtaken_by_newer_command',
+  /** FR-004: the command was cancelled before this call could apply. */
+  commandCancelled: 'command_cancelled',
+  /** A call arrived for a command that has already finished; it is never re-attributed. */
+  commandFinished: 'command_finished',
+  /** A call named a command this page never issued. */
+  unknownCommand: 'unknown_command',
+  /** The browser refused to start playback without a person's gesture (research R10). */
+  autoplayBlocked: 'autoplay_blocked',
 } as const;
 
 export type RefusalReason = (typeof REFUSAL_REASON)[keyof typeof REFUSAL_REASON];

@@ -288,6 +288,38 @@ on the test, not assumed.
   stalls it.
 - A race test is not written until the bug has been reproduced outside it.
 
+### 2026-09-13 — Phase 9: what publishing the tools exposed
+
+**The page had never been an MCP server.** The provider was written and never mounted; no component
+called `useMcpTool`; no tool had an input schema. 90 tasks and 251 tests were green. Registering the
+tools for real exposed three defects no test could see while nothing was registered:
+
+- **Two activity recorders** — `App.tsx` and `mcp/provider.tsx` each built one. Mounting the provider
+  would have filed pre-handler refusals into a record nobody displays.
+- **The observer recorded every `result` as success**, so a handler's `{ok:false}` would have been
+  "succeeded", and assistant actions would have carried no effect to undo. Now the observer records only
+  calls whose `invoke` gate is `notRun`; the handler path records the rest. The 2026-09-12 decision
+  stands — the library exposes the boundary, and `gates` is how to read it.
+- **The record view refreshed only after the page's own actions.** A refusal written by any other path
+  stayed invisible. Fixed at the mechanism: the recorder notifies subscribers.
+
+**Two tests that could not fail, both caught by break-it.** The first break-it run of the fence
+reported six guards "still green": zsh does not word-split an unquoted `$T`, so vitest received one
+path containing a space, matched no files, and "no failures printed" read as green. The harness now
+requires a reported failure count. And a T095 assertion checked the activity entry *contained*
+`playback.pause` — the raw tool id Gate B then showed was the defect.
+
+**FR-035 had never been exercisable.** Every view was permanently mounted, so "the capability's view is
+not open" could not happen. Hide/Show controls made it real; the registry count is observed to drop.
+
+**Dead code reported done.** `command-cancel.ts` (T046, FR-004) was imported by nothing. Deleted.
+
+**Standing rules.**
+- A break-it harness reports the failure count it observed, never the absence of failure lines.
+- Pass argument lists to commands as separate words; in zsh an unquoted variable is one word.
+- An assertion on a label checks the words the person sees, and that the internal id is absent.
+- "Implemented" means reachable from the running page. Grep for the caller before marking a task done.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

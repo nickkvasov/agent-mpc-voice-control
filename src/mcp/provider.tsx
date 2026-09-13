@@ -1,7 +1,7 @@
 import { AgentMcpProvider } from 'agent-mcp-react';
 import { createAjvValidator } from 'agent-mcp-react/validation';
 import type { ReactNode } from 'react';
-import { ActivityRecorder, createInMemoryActivityStore } from '../activity/record-writer.ts';
+import { recorder } from '../activity/recorder.ts';
 import { CAPABILITIES } from './capabilities.ts';
 import { recordObservedCall } from '../activity/from-observed-call.ts';
 
@@ -18,7 +18,6 @@ import { recordObservedCall } from '../activity/from-observed-call.ts';
  *    handler ran — schema-invalid arguments — and running both would write two
  *    entries for one call. See the codex consult in NOTES.md (2026-09-12).
  */
-export const recorder = new ActivityRecorder(createInMemoryActivityStore());
 
 export interface McpRootProps {
   readonly children: ReactNode;
