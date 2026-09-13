@@ -1,6 +1,6 @@
 # Phase 1 Data Model: Agentic Voice and Text Control of a Video Library
 
-**Feature**: `001-voice-video-control` | **Date**: 2026-09-12 | **Spec**: [spec.md](./spec.md)
+**Feature**: `001-voice-video-control` | **Date**: 2026-09-12, revised 2026-09-13 | **Spec**: [spec.md](./spec.md)
 
 All persisted state lives in the browser (IndexedDB). There is no account and no server-side user
 record (FR-042), and the application — not the assistant — owns every entity here (FR-005).
@@ -28,7 +28,7 @@ A pointer to a YouTube video plus what this system knows and the person has adde
 | `videoId` | string | YouTube | Identity. Unique across the store. |
 | `title` | string | YouTube (cached) | Canonical title. Never edited. |
 | `channelTitle` | string | YouTube (cached) | |
-| `durationSeconds` | integer | YouTube (cached) | Needed by "the shortest" (FR-017) and duration filters. |
+| `durationSeconds` | integer \| `unknown` | YouTube (cached) | Needed by "the shortest" (FR-017) and duration filters. `unknown` until `videos.list` establishes it, and for live or upcoming videos, which report a zero length they do not have. **Never defaulted to 0** — that defect shipped once (tasks.md, found after closeout). |
 | `publishedAt` | timestamp | YouTube (cached) | Needed by date filters (FR-015). |
 | `hasCaptions` | boolean \| `unknown` | YouTube (cached) | **Three-valued.** `unknown` until determined — FR-010 must say "I don't know yet", never assume `false` (IMMUNE-U). |
 | `chapters` | Chapter[] \| `unknown` | YouTube (cached) | Same three-valued rule. Drives FR-012; absence is a stated outcome, not a failure. |
@@ -99,14 +99,92 @@ One instruction from the person, and what became of it.
 | `modality` | enum | `voice` \| `text` (FR-001). |
 | `rawText` | string | The recognized or typed text. **No audio is stored** (FR-043). |
 | `interpretation` | string | What the system understood, shown to the person (FR-003). |
-| `route` | enum | `local_matcher` \| `agent` — which path handled it (R3). |
-| `receivedAt` | timestamp | Ordering for FR-038. |
+| `route` | enum | `local_matcher` \| `agent` \| `manual` — which path handled it (R3). |
+| `receivedAt` | timestamp | When it was issued. |
+| `issueSeq` | integer | Monotonic across every modality, assigned when the command is **issued** — at release of the talk control, not when its transcript arrives. The ordering key for FR-038 (R7). |
 | `outcome` | enum | `applied` \| `partially_applied` \| `refused` \| `cancelled` \| `awaiting_confirmation`. |
+| `revoked` | boolean | Set when cancelled, **before** remote cancellation is sent. A revoked command's late calls are refused whatever the fence says (R7). |
 | `refusalReason` | string \| null | Required and non-empty whenever `outcome` is `refused` (FR-034, SC-009). |
 
 **State transitions**: `received → interpreted → (awaiting_confirmation →) applied | partially_applied
 | refused | cancelled`. There is no terminal state without either an outcome or a reason — the schema
 makes a silent failure unrepresentable.
+
+---
+
+## CommandDomain
+
+Not stored; a closed vocabulary. Every tool declares the **set** of domains its effects touch
+(FR-038, R7), and is fenced against all of them at once.
+
+| Value | Tools |
+|---|---|
+| `playback` | `playback.*` |
+| `queue` | `queue.*`, and also `playback.next` / `playback.previous`, which advance the queue |
+| `catalog_curation` | `catalog.*`, `curation.*` |
+| per entry | `activity.undo` is fenced by the domains of the entry it reverses; read-only `activity.*` tools touch none |
+
+A mutating tool declaring no domain is refused at declaration, never treated as touching none — an
+undeclared tool would bypass FR-038 silently.
+
+## DomainFence
+
+Page-owned, in memory.
+
+| Field | Type | Notes |
+|---|---|---|
+| `domain` | `CommandDomain` | |
+| `lastAppliedIssueSeq` | integer | Raised only by an effect that applied. A refusal or failure leaves it; a partial effect raises it for what applied. |
+
+**Rule**: an action applies only if its command's `issueSeq` ≥ the fence of every domain it touches,
+checked at the moment of application and indivisibly with the effect — never only at handler entry.
+
+---
+
+## AssistantTurn
+
+One command handed to the assistant, from the local acknowledgement to its end. Held by the page for
+display; the backend holds only the in-flight request.
+
+| Field | Type | Notes |
+|---|---|---|
+| `turnId` | string | Identity. |
+| `commandId` | string | The `Command` it serves (route `agent`). |
+| `issueSeq` | integer | Copied from the command. |
+| `state` | enum | `acknowledged` \| `running` \| `late` \| `done` \| `refused` \| `cancelled` |
+| `acknowledgedAt` | timestamp | Set locally, before any network call (R9, SC-001/SC-012). |
+| `lateAt` | timestamp \| null | Ten seconds after `acknowledgedAt` if not finished. |
+| `toolCalls` | `{ toolName, result }`[] | Each also has its own `ActivityRecord` entry; this is the turn's view of them. |
+| `refusalReason` | string \| null | Required when `state` is `refused` — including `assistant_allowance_spent` and `assistant_unavailable`. |
+
+**State transitions**: `acknowledged → running → (late →) done | refused | cancelled`, and
+`acknowledged → refused` when the allowance or connection refuses before the turn starts. `late` is
+not terminal: a late turn still finishes, refuses or is cancelled. There is no terminal state without an
+outcome — the same rule `Command` follows.
+
+---
+
+## AssistantAllowance
+
+Backend-owned (FR-046, R8), shaped like `QuotaState`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `sessionTurnsRemaining` | integer \| `unknown` | Of the per-session limit (default 40). |
+| `dayTurnsRemaining` | integer \| `unknown` | Of the deployment-wide daily limit (default 400). `unknown` until established, like `searchCallsRemaining`. |
+| `resetsAt` | timestamp | The same Pacific midnight the search budget uses — one notion of "a day" in the product. |
+
+## AssistantSession
+
+Backend-owned, anonymous (FR-042).
+
+| Field | Type | Notes |
+|---|---|---|
+| `sessionId` | opaque string | Carried in an `HttpOnly`, `SameSite=Strict` cookie set by `POST /api/mcp-ticket`. |
+| `connection` | the page's MCP socket \| none | Bound when a ticket minted for this session is redeemed at the upgrade. A turn for a session with no connection is refused `assistant_unavailable`. |
+| `turnsUsed` | integer | Counted when a turn is admitted, not when it succeeds. |
+
+A tab identifier, if the page sends one, is routing metadata and never admits anything (R8).
 
 ---
 
@@ -169,5 +247,6 @@ Command ──1:N──> ActivityRecord ──> (inverse) ──> undo writes a 
 | `collections` | yes | FR-039 |
 | `queue` | session only | Not required to survive a reload |
 | `commands` | yes, clearable | FR-041 — the person can clear this history |
+| `assistantTurns` | session only | Display of in-flight and recent turns; the durable evidence is the activity record |
 | `activityRecords` | yes, at least the session | FR-044 |
 | `quotaState` | yes | Survives reload so the page can report quota before its first search |

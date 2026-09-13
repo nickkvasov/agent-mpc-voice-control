@@ -208,6 +208,230 @@ foundation's own design expects the page to connect outward to a gateway.
 
 ---
 
+## Revision 2026-09-13 — after live verification and the second clarification session
+
+Live runs with real credentials showed the page had no YouTube player and no path from an utterance to
+the assistant, and the clarification session of 2026-09-13 changed SC-001, SC-012 and FR-038 and added
+FR-046. R6–R10 are the research those changes needed. Where they overturn an earlier entry, the earlier
+entry is marked rather than rewritten, so the reasoning that led to it stays readable.
+
+**Superseded in part:** R3's premise that the one-second budget is unreachable through a remote model
+still holds, but its consequence changed — SC-001 no longer asks the assistant path to meet it (R9).
+R5's "streaming matters during the three-second window of SC-012" now reads ten seconds.
+
+---
+
+## R6. The gateway — how an agent reaches the page
+
+**Decision**: The backend process hosts the gateway beside its HTTP routes: a `ws` `WebSocketServer`
+in `noServer` mode on the same HTTP server, upgrading only `/mcp`, and refusing an unredeemable ticket
+**at the upgrade** with HTTP 401 so the page never sees `open`. Each accepted socket gets an MCP
+`Client` from `@modelcontextprotocol/client` 2.x over a small `Transport` adapter — one JSON-RPC
+message per text frame, frames read with the SDK's own `deserializeMessage`, `onclose` fired exactly
+once however the socket ended. The tool listing is cached per connection and invalidated by the page's
+`notifications/tools/list_changed`, replacing the loop's current re-list on every iteration.
+
+**Rationale**: `agent-mcp-react` is only the browser half; its README names the gateway, the ticket
+minter and the agent runtime as the application's to supply. Its reference implementation
+(`tools/mock-agent` in the library repository — `gateway.ts`, `client.ts`, `chat.ts`) was read for this
+entry, and every rule above comes from it, each with a failure behind it:
+
+- *Refuse at the upgrade.* Accepting and then closing gives the page an `open` event, and anything sent
+  in that window reached an unauthenticated peer.
+- *The page is the server.* Browser JavaScript cannot accept connections, so the client answers on a
+  socket it did not open. `client.connect()` must be what calls `start()`, or early frames are dropped
+  silently.
+- *Validate frames, never cast them.* A frame that is valid JSON but not JSON-RPC is reported and
+  dropped, not trusted — Constitution III at the socket.
+- *List on change, not on a guess.* The page announces tool changes (FR-035); re-listing every round
+  trip is a workaround for ignoring that signal, and costs a socket round trip per iteration against
+  SC-012's budget.
+
+The ticket minter already exists (`server/ticket/route.ts`, single-use, 30s) and is kept. Its
+`gatewayOrigin` default of `wss://localhost:8788` names a server that does not exist and becomes the
+backend's own origin, `ws://localhost:8787` in development — `localhost` is a secure context, so `ws:`
+is permitted there.
+
+**Also found**: the reference translates tool names against `^[a-zA-Z0-9_-]{1,64}$`, while
+`server/agent/tool-names.ts` states a limit of 128. This project's longest name is 29 characters, so
+neither bound is reached today; the alias map must still refuse a name over the stricter bound rather
+than let the API reject the whole request. Verify the exact figure against the API reference when the
+task lands rather than trusting either copy.
+
+**Alternatives considered**:
+- *A separate gateway process.* Rejected: the turn endpoint must reach the socket for a specific page,
+  and a second process would need its own channel to the first to do it.
+- *Server-Sent Events plus POST in place of a WebSocket.* Rejected: the library dials a WebSocket and
+  treats the URL as opaque; a different transport means forking the browser half.
+- *Handling the upgrade by hand.* Rejected: `ws` is what the reference uses and the upgrade path is
+  where the security property lives.
+
+---
+
+## R7. Order within a domain, and the assistant overtaken
+
+**Decision**: An **issue fence** in the page, one mechanism for every caller.
+
+- Every command gets an immutable `commandId` and a monotonic `issueSeq` **when issued** — at release of
+  the talk control, before recognition finishes, not when its text arrives.
+- Every tool declares the **set** of domains it affects (`playback`, `queue`, `catalog_curation`);
+  `playback.next` and `playback.previous` declare `playback` and `queue`. Each domain holds
+  `lastAppliedIssueSeq`.
+- An action applies only if its command's `issueSeq` is not below the fence of **every** domain it
+  affects; applying raises those fences. Otherwise it is refused `overtaken_by_newer_command`, naming the
+  newer command: *"Did not seek: your later pause already applied. Ask again if you still want it."*
+- **The check is made at the moment of application, not at handler entry**, and the check, the effect
+  and raising the fence are indivisible against other effects in the same domains. A handler may
+  prepare asynchronously (a search, a confirmation, a player readback), but must re-check before it
+  applies. A refusal or failure does not raise the fence; a partial effect raises it for what applied.
+- A cancelled command is revoked locally **before** remote cancellation is sent, so a late call from it
+  is refused whatever the fence says. Equal `issueSeq` is allowed — one command may make several calls —
+  and a retry keeps its command's `issueSeq`; it cannot refresh its place.
+
+**Attribution of assistant calls** — the problem that made this a consult: `agent-mcp-react` 0.3.0 gives
+a handler `(input, { signal, afterRender })` and nothing else, so an arriving `tools/call` does not say
+which command it serves. Decision: **concurrent turns with an injected `commandId`**. Every tool's input
+schema carries one reserved field, `commandId`, defined once and added mechanically. The backend loop
+removes exactly that field from the schema it shows the model and writes the turn's bound `commandId`
+into every call it forwards — overwriting anything the model sent, so the model can neither choose nor
+forge it. The page resolves the id to its own command record; unknown, cancelled, finished or foreign
+ids are refused. Local callers (clicks, the matcher) receive their id from the same command owner and
+enter the same guarded path. Only the id crosses the wire; `issueSeq` never does, so the page remains the
+single owner of what the id means.
+
+**Rationale** — decided by failure scenarios, from the codex consult recorded in NOTES.md:
+
+| Option | What breaks it |
+|---|---|
+| One assistant turn at a time, others wait | A playback turn that never finishes holds an unrelated discovery turn indefinitely — the cross-domain wait FR-038 now forbids |
+| One turn at a time, others refused | A blanket availability rule with no ordering conflict behind it: product policy the spec did not ask for |
+| Stamp calls with the oldest running turn's sequence | **Unsafe, not merely cautious.** Turn 11's playback action applies stamped 10; a genuinely stale action from turn 10 is also 10 and passes the equality check — the stale overwrite the fence exists to stop |
+| A tool per turn | Attribution becomes naming and registration lifecycle — aliases, listing churn, stale cached names — more machinery than one field |
+| Fence on the backend | Cannot atomically see a local click racing a browser mutation; the last check must sit beside the state change |
+
+A library change passing MCP request `_meta` to handlers would be the cleaner seam, and the protocol
+already supports it. It is not available in 0.3.0, and this plan does not depend on it.
+
+**IMMUNE-N / M1**: two schema representations derived mechanically from one declaration are one
+authority with two projections; two maintained by hand would be the violation. The derivation, not
+review, is what keeps them equal — and it is tested.
+
+**Alternatives considered**: see the table. The prior global `CommandChain` is retired: it met the old
+FR-038 by making every command wait for every earlier one, which is what produced the 5-second pause
+behind a stalled search.
+
+**Must be tested against** (from the consult, each as its own case, each break-it proved):
+concurrent turns calling the same tool with identical arguments in reversed completion order; older
+work overtaken by a newer click, matcher command and assistant command; a stalled playback turn not
+delaying discovery and a stalled search not delaying pause; suspension before mutation, during
+confirmation and during player readback, then resumption after newer work; cancellation before
+dispatch, during preparation and after a partial effect, with late calls delivered after cancellation,
+completion, disconnect and reconnect; derived schemas equal in every business constraint, a missing or
+forged `commandId` refused; one activity entry per invocation throughout; allowance consumed atomically
+by concurrent turn starts. The real WebSocket path is part of these, not only an in-process transport.
+
+---
+
+## R8. Bounding assistant spend in an anonymous deployment (FR-046)
+
+**Decision**: An `AssistantAllowance` on the backend, the same shape as `SearchBudget`: a per-session
+limit and a deployment-wide daily limit, both checked **before** a turn starts, the day rolling over
+at the same Pacific midnight the search budget uses. Defaults, configurable by environment:
+**40 turns per session, 400 turns per day**. A session is an opaque id in an `HttpOnly`,
+`SameSite=Strict` cookie set by `POST /api/mcp-ticket`; the ticket records that session, so the socket
+it admits is bound to it, and `POST /api/assistant/turns` reaches only the socket of the session whose
+cookie it carries.
+
+**Rationale**: FR-042 keeps access anonymous, so the limit cannot be per account. Binding the socket to
+a session through the ticket — rather than through a tab id the page reports — follows the library's
+rule that a tab identifier is metadata and never a credential: otherwise any page could post a turn
+and drive someone else's tab. The per-session limit is not a security boundary (clearing cookies
+resets it); the daily limit is the real bound on spend, and the per-session limit keeps one sitting
+from consuming everyone's day, the same reason the search budget paces rather than only counts.
+
+Every turn is already bounded at eight model iterations (`MAX_ITERATIONS`), so a turn cap is a spend
+cap with a known ceiling. The defaults are a starting point sized against the search budget — at most
+two catalog searches per assistant turn in practice, so 400 turns cannot outrun 90 searches by more
+than the search budget itself refuses.
+
+**Known limitation, carried over deliberately**: like `SearchBudget`, the counts live in memory and
+reset when the process restarts; `searchCallsRemaining` is `null` until established for the same
+reason. Persisting either is out of scope for this revision and is stated rather than implied.
+
+**Alternatives considered**: a token budget instead of a turn count (more exact, but the person cannot
+reason about "tokens left"); an access code (rejected at clarification); no per-session limit
+(one enthusiastic sitting empties the day — the lesson the search budget already paid for).
+
+---
+
+## R9. The assistant path's latency, and what the person sees while it runs
+
+**Decision**: Keep `claude-opus-5` with adaptive thinking and streaming. The page shows the
+**acknowledgement itself, immediately and locally**, the moment the matcher falls through — before any
+network call — which is how SC-001's and SC-012's one-second acknowledgement is met independently of
+the model. The turn streams to the page as Server-Sent Events from `POST /api/assistant/turns`:
+`acknowledged`, `tool_call`, `tool_result`, `message`, `refused`, `done`, with `done` always last.
+After ten seconds without `done` the page marks the turn **late** (SC-012) and keeps it cancellable;
+cancelling aborts the request, which aborts the model stream and sends MCP cancellation to the page, so
+a handler already running sees its `signal` abort (FR-004).
+
+**Rationale**: two live turns measured 4.5s and 6.2s end to end with no catalog call. SC-012's ten
+seconds leaves room for a search (0.87s measured) and a second iteration; a multi-step request —
+"queue the three shortest talks about X" — is where the budget is at risk. The levers, in the order
+to pull them if SC-012's live timing test fails: (1) prompt for one precise call and parallel tool use
+in one iteration, (2) the cached tool listing from R6, which removes a round trip per iteration,
+(3) lower reasoning effort on this path. Changing model is the last lever, not the first — the clarify
+session chose a ten-second budget precisely so this path would not be forced onto a weaker model.
+
+A single *late* rule (ten seconds, any domain) is used rather than tracking which success criterion a
+turn falls under, because the page cannot know a turn's domain until the assistant acts. For playback
+this is additional information, not a deadline: SC-001 sets none for this path, and saying "this is
+taking longer than usual" contradicts nothing.
+
+**Alternatives considered**: a smaller model by default (rejected at clarification, see above); an
+acknowledgement sent by the server (rejected — it would put the one-second promise behind a network
+round trip, the exact dependency the split was made to remove); a WebSocket for the turn stream
+(rejected — the MCP socket is the page's *server* channel, and multiplexing chat onto it would make the
+page's MCP server carry non-MCP traffic).
+
+---
+
+## R10. The real YouTube player, and testing it without trusting a stand-in
+
+**Decision**: Load the IFrame Player API once (`https://www.youtube.com/iframe_api`), create one
+`YT.Player` with `playerVars: { origin: location.origin, playsinline: 1 }`, and adapt it to the existing
+`YouTubePlayer` interface. Every mutating playback tool **awaits the player's own confirmation** — the
+`onStateChange` event for transport, the readback for rate and volume — bounded at one second
+(FR-013), and reports `refused_by_player` or the state actually reached when it does not arrive.
+`onError` maps to availability (codes 100/101/150), with 153 reported as an origin fault, never as a
+property of the video. `onAutoplayBlocked` is a stated outcome: "the browser blocked playback; press
+play." `createLocalPlayer` leaves `App.tsx` and survives only as a test double under `tests/`.
+
+**Rationale**: the stand-in answered every call synchronously, so readback always "succeeded". A real
+player answers asynchronously — `playVideo()` returns before playback starts, and may never start if
+autoplay is blocked — so a tool that reads state immediately after the call reports the *previous*
+state as the result. That is the silent success Constitution III names, arriving through timing rather
+than through code anyone wrote. It is also why `context.afterRender()` is not enough on its own: it
+waits for React, not for the player.
+
+**Testing**: two layers, because the incident that produced this entry was a double nobody checked
+against the real thing.
+- *Deterministic*: Playwright intercepts `iframe_api` and serves a fake that implements the
+  `YouTubePlayer` subset and fires events on a schedule the test controls — including autoplay blocked,
+  a state change that never arrives, and each error code.
+- *Live*: a separate `test:e2e:live` suite drives the real embed against a known public video: play,
+  pause, seek, rate readback, one caption track. It runs at Gate B and at the final gate, needs network,
+  and does not run per phase. The fake is only trusted for what the live suite has also observed.
+
+R4's measured results (captions enable/enumerate/select work; disable is unverifiable; 153 needs a real
+origin) carry forward unchanged.
+
+**Alternatives considered**: `react-youtube` or a similar wrapper (rejected — it hides the event timing
+this entry is about, and adds a dependency to wrap three calls); testing only against the fake (rejected
+— that is the incident).
+
+---
+
 ## Resolved Technical Context
 
 | Unknown | Resolution |
@@ -217,5 +441,10 @@ foundation's own design expects the page to connect outward to a gateway.
 | Meeting the 1s budget | Local matcher for closed playback vocabulary; agent for everything else (R3) |
 | Player control surface | IFrame Player API; captions **measured** — enable/enumerate/select work, disable unverifiable (R4/T007) |
 | Agent runtime | Server-side Claude API (`claude-opus-5`), streaming, key never in browser (R5) |
+| Gateway and MCP client | `ws` upgrade refused before handshake; `@modelcontextprotocol/client` 2.x over a frame adapter; listing cached, invalidated on `list_changed` (R6) |
+| Ordering within a domain | Issue fence checked at application; assistant calls attributed by an injected `commandId` the model cannot see or set (R7) |
+| Assistant spend | Per-session 40 / daily 400 turns, session bound through the ticket, checked before a turn (R8) |
+| Assistant latency | Local acknowledgement; SSE turn stream; late at 10s; cancellation reaches the page's handler (R9) |
+| Real player | IFrame API adapter awaiting the player's own confirmation; fake for determinism, live suite for truth (R10) |
 
 **No `NEEDS CLARIFICATION` markers remain.**

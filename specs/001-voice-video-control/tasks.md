@@ -71,7 +71,7 @@ Web application per [plan.md](./plan.md): `src/` (browser), `server/` (backend),
 
 ### MCP wiring
 
-- [X] T020 Wire `AgentMcpProvider` with Ajv validator, `onUnexpectedState`, and `capabilities` fixing `dom.inspect`/`dom.interact`/`evaluate` to false, in `src/mcp/provider.tsx`
+- [X] T020 Wire `AgentMcpProvider` with Ajv validator, `onUnexpectedState`, and `capabilities` fixing `dom.inspect`/`dom.interact`/`evaluate` to false, in `src/mcp/provider.tsx` — **written but never mounted; completed by T104**
 - [X] T021 Write the test asserting DOM and evaluate capabilities are off and cannot be enabled by configuration (Constitution II) in `tests/contract/capabilities-locked.test.ts`
 - [X] T022 Implement the confirmation resolver where an unclear response resolves to refusal with **no** assume-yes path, in `src/mcp/confirmation-resolver.ts`
 
@@ -133,10 +133,10 @@ the player reaches the requested state and the controls agree. Needs no catalog 
 
 ### Implementation for User Story 1
 
-- [X] T031 [US1] Implement the IFrame player wrapper with state mapping and `onError`/`onStateChange`/`onAutoplayBlocked` handlers in `src/player/player.ts`
+- [X] T031 [US1] Implement the IFrame player wrapper with state mapping and `onError`/`onStateChange`/`onAutoplayBlocked` handlers in `src/player/player.ts` — **interface only; completed by T113–T117**
 - [X] T032 [US1] Implement **readback verification** — `getPlaybackRate`, `getVolume`, `isMuted` after every set, reporting platform refusal rather than success (FR-008, FR-009) — in `src/player/readback.ts`
 - [X] T033 [US1] Implement ad detection gating commands the player refuses during ads (FR-014) in `src/player/ad-gate.ts`
-- [X] T034 [P] [US1] Declare `playback.play`/`pause`/`stop` tools in `src/player/tools/transport.ts`
+- [X] T034 [P] [US1] Declare `playback.play`/`pause`/`stop` tools in `src/player/tools/transport.ts` — **handlers only, never registered with MCP; completed by T105**
 - [X] T035 [P] [US1] Declare `playback.seek` with clamping, returning the position actually reached, in `src/player/tools/seek.ts`
 - [X] T036 [P] [US1] Declare `playback.setRate`, `setVolume`, `setMuted` over the readback layer in `src/player/tools/rate-volume.ts`
 - [X] T037 [US1] Declare `playback.setCaptions` per the T007 spike finding, treating `capability_unsupported` as an expected outcome, in `src/player/tools/captions.ts`
@@ -284,13 +284,208 @@ failure would hide.
 
 - [X] T082 Implement the disclosure that command text and video titles reach an external language model service (FR-045) in `src/app/privacy-disclosure.tsx`
 - [X] T083 Implement assistant-unavailable state keeping the whole interface usable by hand (FR-037) in `src/mcp/connection-status.tsx`
-- [X] T084 Implement command ordering — applied in the order issued, or explicitly refused (FR-038) — in `src/app/command-chain.ts` (not `command-queue.ts`: the ordering boundary was extracted during Phase 3's Gate C, when a chain living inside a React callback proved untestable)
+- [X] T084 Implement command ordering — applied in the order issued, or explicitly refused (FR-038) — in `src/app/command-chain.ts` (not `command-queue.ts`: the ordering boundary was extracted during Phase 3's Gate C, when a chain living inside a React callback proved untestable) — **superseded by the per-domain fence in T099–T102 after FR-038 was clarified 2026-09-13**
 - [X] T085 Implement the unavailable-view refusal naming the view that owns the capability (FR-035) in `src/mcp/tool-availability.ts`
 - [X] T086 [P] Implement clearing of command transcript history (FR-041) in `src/app/history-controls.tsx`
 - [X] T087 Playwright **failure matrix** covering quickstart Scenario 5: recognition unavailable, agent disconnected, quota exhausted, video removed/embedding disallowed, ad in progress, view not open — each asserting a stated reason (SC-009) — in `tests/e2e/failure-matrix.spec.ts`
 - [X] T088 Playwright **privacy assertions** covering quickstart Scenario 6: no request carries audio (SC-013), capture indicator matches capture window (SC-011), disclosure present (FR-045), in `tests/e2e/privacy.spec.ts`
 - [X] T089 **Break-it-to-prove-it pass**: for each confirmation gate, the no-bare-success invariant and the no-audio-egress assertion, delete the check, confirm red, restore, and record it in `.claude/kaliper/phased-implement/NOTES.md`
 - [X] T090 Record in `.claude/kaliper/phased-implement/NOTES.md` every incident a green suite missed during live runs
+
+---
+
+## Found after closeout — 2026-09-13, once real credentials existed
+
+Recorded rather than silently re-opened: each of these was reported complete, or
+reported as a smaller gap than it is.
+
+- **T031 is not met.** The task names an IFrame player wrapper with
+  `onError`/`onStateChange`/`onAutoplayBlocked` handlers. What exists is the
+  `YouTubePlayer` interface and the error mapping. No IFrame API is loaded and no
+  video is ever embedded: `App.tsx` drives `createLocalPlayer`, an in-memory
+  stand-in with a fixed 600s duration, and a result's **Play** answers "Would play
+  … once the player embed lands." Every playback Gate B so far drove that
+  stand-in. The tools above it are real; nothing a person can watch is.
+- **There was no YouTube client, not merely an unverified one.** Both backend
+  fetchers threw unconditionally, so a key alone would have changed nothing.
+  Now `server/catalog-proxy/youtube.ts`: `search.list` followed by one
+  `videos.list` for durations, captions and description chapters kept
+  three-valued, upstream `quotaExceeded` mapped to `quota_exhausted` and written
+  back into the budget, and no error that can carry the key. Verified live: 25
+  results, all with durations; the repeated query served from cache.
+- **The page turned every missing duration into 0** (`src/catalog/client.ts`),
+  re-introducing the defect the `VideoReference` type had been fixed against.
+  Fixtures always carried a duration, so no test could see it.
+- **Nothing started the backend.** `npm run dev` is Vite alone, while quickstart
+  said "frontend + backend". Added `npm run server` (reads `dev.env` or `.env`).
+  `gates.json`'s `live.start` still runs only `npm run dev`.
+- **SC-001 is out of reach through the agent.** Two live turns on
+  `claude-opus-5` with adaptive thinking took 6.2s ("go back a bit": getState,
+  then seek) and 4.5s (a captions refusal, reported correctly). SC-001 allows one
+  second including the assistant round-trip. Commands the local matcher handles
+  never reach the agent and are unaffected; the fall-through is not. Two
+  measurements, not a benchmark — but the gap is sixfold. Needs a decision:
+  the budget, the model or effort on that path, or narrowing SC-001 to matched
+  commands.
+- **The dev server served the credentials.** `GET /dev.env` on :5273 returned
+  both keys; `vite.config.ts` now denies `*.env` and `*.env.*`, proved by
+  `tests/e2e/credentials-not-served.spec.ts`.
+- **FR-038 and SC-001 collide on a slow search** (codex, reproduced at 5000 ms).
+  Every command shares one `CommandChain`, so "pause" issued after a stalled
+  search waits for it — now at most the 5s upstream deadline, previously
+  unbounded. FR-038 permits waiting or an explicit refusal; SC-001 permits
+  neither beyond one second. Letting commands that touch disjoint state (playback
+  vs catalog) pass each other would satisfy both in spirit and breaks FR-038's
+  letter. Undecided — needs a ruling, not a patch.
+- **The page publishes no MCP tools at all.** Found while mapping the revision's
+  tasks to files: `main.tsx` renders `App` without `AgentMcpProvider`, and nothing
+  calls `useMcpTool`. T020 wrote the provider and never mounted it; T034–T039 and
+  their siblings wrote handlers that buttons and the matcher call directly. An
+  assistant connected today would list an empty page. Principle II's "declared by
+  the component that owns the state" is therefore unmet everywhere, and FR-035's
+  "not on screen" behaviour has never been exercised through MCP.
+- **The gateway still has no task** (unchanged) — now T118–T125. The loop is verified live
+  against the real API through an in-process transport; nothing carries a page's
+  tools to it.
+
+---
+
+## Phase 8: Setup for the 2026-09-13 revision
+
+**Purpose**: Dependencies, scripts and gates the new work needs. Plan: *Revision 2026-09-13*;
+research R6–R10.
+
+- [ ] T091 Install `ws` 8.x, `@types/ws` and `@modelcontextprotocol/client` 2.x (the reference gateway's own choices, R6) in `package.json` — if npm times out, run with `NODE_OPTIONS=--network-family-autoselection-attempt-timeout=15000` (NOTES.md)
+- [ ] T092 Add `npm run dev:all`, starting the backend and Vite as one process group that stops both on exit and on either one failing, in `scripts/dev-all.mjs` and `package.json`; change `live.start` to `npm run dev:all` and add `http://localhost:8787/health` to `live.urls` in `.claude/kaliper/phased-implement/gates.json`
+- [ ] T093 [P] Add a separate Playwright project for `tests/e2e-live/` (excluded from `test:e2e`, needs network and `dev.env`) and a `test:e2e:live` script, in `playwright.config.ts` and `package.json`; add it to `final` in `.claude/kaliper/phased-implement/gates.json` with a `why` naming its prerequisites
+- [ ] T094 [P] Replace the `gatewayOrigin` default `wss://localhost:8788` with the backend's own origin (`ws://localhost:8787` in development) and document `ASSISTANT_TURNS_PER_SESSION` (40) and `ASSISTANT_TURNS_PER_DAY` (400) in `server/index.ts` and `.env.example`
+
+---
+
+## Phase 9: Foundational — publish the tool surface, and order it per domain
+
+**Purpose**: Make the page an MCP server for real, and replace global ordering with the issue fence
+(FR-035, FR-038, Principle II, R7). **Blocks every conversational task below.** The consult's race
+cases are the tests; each is break-it proved.
+
+### Tests for Phase 9
+
+- [ ] T095 [P] Playwright: every tool in `contracts/mcp-tools.md` appears in the page's registry exactly while its owning view is mounted, and disappears when it unmounts (FR-035) — read through the registry, not through the handlers — in `tests/e2e/tool-surface.spec.ts`
+- [ ] T096 [P] Contract test: for every tool, the model-facing schema equals the wire schema minus `commandId` in every business constraint; a call missing `commandId`, carrying an unknown one, or carrying a cancelled or finished one is refused, in `tests/contract/command-id-schema.test.ts`
+- [ ] T097 [P] Integration test of the issue fence per R7: identical concurrent calls from two commands in reversed completion order keep their attribution; older work overtaken by a newer click, matcher command and assistant command is refused `overtaken_by_newer_command` naming the newer command; suspension before mutation, during confirmation and during player readback followed by newer work refuses the older on resume; `playback.next` is fenced by `playback` and `queue`; a refusal does not raise a fence; one activity entry per invocation throughout, in `tests/integration/issue-fence.test.ts`
+- [ ] T098 [P] Integration test of cancellation and cross-domain independence: cancel before dispatch, during preparation and after a partial effect; late calls after cancellation, completion, disconnect and reconnect are refused and never re-attributed; a stalled search does not delay pause; a stalled playback command does not delay a queue change, in `tests/integration/domain-independence.test.ts`
+
+### Implementation for Phase 9
+
+- [ ] T099 Define the `CommandDomain` vocabulary and each tool's declared domain set (`playback.next`/`previous` → `playback` + `queue`; `activity.undo` → the reversed entry's domains; read-only tools → none), refusing a mutating tool with no domains at declaration, in `src/vocab/command-domains.ts`
+- [ ] T100 Implement the command owner: `commandId`, `issueSeq` assigned at issuance (talk-control release, typed submit, click), outcome, and `revoked` set before any remote cancellation, in `src/app/commands.ts`
+- [ ] T101 Implement the issue fence — per-domain `lastAppliedIssueSeq`, a check made at application and indivisible with the effect, partial effects raising only what applied — and add `overtaken_by_newer_command` and `autoplay_blocked` to `src/vocab/refusal-reasons.ts`, in `src/app/issue-fence.ts`
+- [ ] T102 Route `invokeRecorded` through the command owner and the fence so clicks, the matcher and MCP calls share one path; retire the global `CommandChain` and migrate its ordering tests to the fence, in `src/app/invoke.ts`, `src/App.tsx` and `src/app/command-chain.ts`
+- [ ] T103 Define the reserved `commandId` field once, add it to every tool's input schema mechanically, and export the derivation that removes exactly that field for the model, in `src/mcp/command-id.ts` (pure module; the backend imports it rather than restating the field name)
+- [ ] T104 Mount `McpRoot` around the application with the ticket supplier fetching `POST /api/mcp-ticket`, in `src/main.tsx` and `src/mcp/provider.tsx`
+- [ ] T105 Register every `playback.*` tool with `useMcpTool` in the component that owns the player, handlers delegating to the existing tool functions through `invokeRecorded`, awaiting `context.afterRender()` after mutations, in `src/player/player-tools.tsx`
+- [ ] T106 [P] Register every `catalog.*` tool with `useMcpTool` in the browse view, in `src/catalog/results-view.tsx`
+- [ ] T107 [P] Register every `queue.*` tool with `useMcpTool` in the queue view, in `src/queue/queue-view.tsx`
+- [ ] T108 [P] Register every `curation.*` tool, declaring `confirmation: 'required'` where the contract says so and keeping the check inside the handler too, in `src/curation/curation-view.tsx`
+- [ ] T109 [P] Register every `activity.*` tool with `useMcpTool` in the record view, in `src/activity/record-view.tsx`
+
+**Checkpoint**: an MCP client listing the page sees its tools change as views open and close; ordering
+refusals are stated; nothing waits across domains.
+
+---
+
+## Phase 10: User Story 1 — the real YouTube player (Priority: P1)
+
+**Goal**: Replace the in-memory stand-in with the IFrame Player API, reporting only what the player
+confirms (R10). Completes T031.
+
+**Independent test**: Load a public video; play, pause, seek, change rate and turn on a caption track
+by button and by typed command; each control shows the state the real player reports.
+
+### Tests for User Story 1
+
+- [ ] T110 [P] [US1] Fake IFrame API fixture implementing the `YouTubePlayer` subset, firing events on a schedule the test controls — including a state change that never arrives, autoplay blocked, and errors 100/101/150/153 — served by route interception, in `tests/e2e/fixtures/fake-iframe-api.js`
+- [ ] T111 [P] [US1] Playwright against the fake: every Scenario 1 row; a state change that never arrives → `refused_by_player` with the actual state; autoplay blocked → `autoplay_blocked`, never "playing"; 153 reported as an origin fault, not as the video unavailable, in `tests/e2e/player.spec.ts`
+- [ ] T112 [P] [US1] Live suite against the real embed on a known public video: play, pause, seek, rate readback, one caption track — the fake is trusted only for what this also observes, in `tests/e2e-live/player.live.spec.ts`
+
+### Implementation for User Story 1
+
+- [ ] T113 [US1] Load the IFrame Player API once, resolving on `onYouTubeIframeAPIReady` and refusing with a stated reason on load failure or timeout, in `src/player/iframe-api.ts`
+- [ ] T114 [US1] Adapt `YT.Player` to `YouTubePlayer` with `playerVars: { origin: location.origin, playsinline: 1 }`, exposing `onStateChange`, `onError` and `onAutoplayBlocked` as observable events, in `src/player/youtube-adapter.ts`
+- [ ] T115 [US1] Make every mutating playback tool await the player's own confirmation for at most one second and report what it confirmed — `refused_by_player` with the actual state, or `autoplay_blocked` — in `src/player/readback.ts`, `src/player/tools/transport.ts`, `src/player/tools/seek.ts`, `src/player/tools/rate-volume.ts` and `src/player/tools/captions.ts`
+- [ ] T116 [US1] Mount the real player; make a result's **Play** and queue advancement load the video; move `createLocalPlayer` out of the application into `tests/support/local-player.ts`, in `src/App.tsx` and `src/player/player-view.tsx`
+- [ ] T117 [US1] Wire `onError` to availability through `availabilityFromError` and `isOriginError`, showing the specific reason on the result and queue entry (FR-036), in `src/player/player-view.tsx` and `src/catalog/results-view.tsx`
+
+**Checkpoint**: nothing in `src/` constructs a stand-in player; Scenario 1 passes against the fake and
+the live suite.
+
+---
+
+## Phase 11: Foundational — the gateway and MCP client
+
+**Purpose**: Let the backend reach the page's tools (R6). Tested on a real socket, never only an
+in-process transport.
+
+### Tests for Phase 11
+
+- [ ] T118 [P] Integration test on a real `ws` server bound to an ephemeral port: a valid ticket is redeemed during the upgrade; unknown, expired and replayed tickets get HTTP 401 and the client never sees `open`; a frame that is not JSON-RPC is reported and dropped; `onclose` fires exactly once however the socket ends; a connection counts as ready only after `initialize` completes, in `tests/integration/gateway.test.ts`
+- [ ] T119 [P] Integration test: the tool listing is cached per connection and invalidated by `notifications/tools/list_changed`; a second connection for the same session replaces the first; tools that vanish mid-turn are handled by the loop's existing path, in `tests/integration/gateway-tool-listing.test.ts`
+
+### Implementation for Phase 11
+
+- [ ] T120 Issue the anonymous session cookie (`HttpOnly; SameSite=Strict; Path=/api`) from `POST /api/mcp-ticket` and record the session on the ticket, in `server/ticket/session.ts` and `server/ticket/route.ts`
+- [ ] T121 Accept WebSocket upgrades on `/mcp` with `WebSocketServer({ noServer: true })`, redeeming the ticket before the handshake and binding the connection to its session, in `server/gateway/upgrade.ts`, wired in `server/index.ts`
+- [ ] T122 Implement the frame `Transport` (the SDK's `deserializeMessage`, no `start()` outside `client.connect()`, `onclose` once) and a bounded `initialize`, in `server/gateway/transport.ts`
+- [ ] T123 Implement the per-session page connection exposing the loop's `ToolTransport` over a cached listing invalidated by `list_changed`, in `server/gateway/page-connection.ts`
+- [ ] T124 Verify the Messages API tool-name limit against the current API reference (the reference gateway says 64, this code says 128) and make the alias map refuse a name over it rather than let the request fail, in `server/agent/tool-names.ts`
+- [ ] T125 Use the cached listing instead of re-listing every iteration, keeping the vanished-tools finalisation, in `server/agent/loop.ts`
+
+---
+
+## Phase 12: Foundational — assistant turns, allowance, and the page's turn client
+
+**Purpose**: Carry a command to the assistant and its progress back (R8, R9, FR-046).
+
+### Tests for Phase 12
+
+- [ ] T126 [P] Integration test of the allowance: per-session and per-day limits checked before any model work; concurrent turn starts cannot overspend; rollover at the same Pacific midnight as the search budget; a cancelled admitted turn still counts, in `tests/integration/assistant-allowance.test.ts`
+- [ ] T127 [P] Integration test of the turn endpoint: SSE events in order with `done` always last; 409 `assistant_unavailable`, 429 `assistant_allowance_spent` (with `limit` and `resetsAt`) and 503 before the stream opens; `commandId` written over any model-supplied value and absent from the model's schema; two concurrent turns attributed exactly; aborting the request aborts the model stream and sends MCP cancellation, in `tests/integration/assistant-turns.test.ts`
+- [ ] T128 [P] Integration test of the page's turn client: the acknowledgement renders before any network call; a turn without `done` at ten seconds becomes `late` and stays cancellable; cancelling revokes the command before aborting the request, in `tests/integration/turn-client.test.ts`
+
+### Implementation for Phase 12
+
+- [ ] T129 Extract the Pacific-midnight calculation into one owner used by both budgets, and implement `AssistantAllowance`, in `server/time/pacific-day.ts`, `server/catalog-proxy/budget.ts` and `server/assistant/allowance.ts`
+- [ ] T130 Implement `POST /api/assistant/turns`: session → connection, allowance admission, the SSE stream, `commandId` injection on every forwarded call, cancellation, in `server/assistant/turns.ts`, routed from `server/routes.ts`
+- [ ] T131 Add a scripted model client for deterministic e2e runs, enabled only by an explicit environment variable and **refusing to start when `ANTHROPIC_API_KEY` is also set**, so a scripted run cannot pass itself off as a live one, in `server/agent/scripted-client.ts`
+- [ ] T132 Implement the page's turn client: matcher fall-through → local acknowledgement → SSE reader → `late` at ten seconds → cancel, in `src/assistant/turn-client.ts`
+- [ ] T133 Show turns — acknowledged, running, late, done, refused, cancelled — with their tool calls and the allowance and reset time, replacing "the assistant is not connected", in `src/assistant/turn-view.tsx` and `src/App.tsx`
+- [ ] T134 Report the assistant available only once the socket is admitted **and** the backend has listed the page's tools, and unavailable with the reason when the allowance is spent (FR-037, FR-046), in `src/mcp/connection-status.tsx`
+
+**Checkpoint**: a typed command the matcher cannot handle reaches the assistant and acts on the page;
+the whole path runs deterministically with the scripted client and live with the key.
+
+---
+
+## Phase 13: Every story, conversationally
+
+**Purpose**: US1–US4's acceptance scenarios were satisfied by hand and by the matcher; these prove
+them through the assistant, on the real page and the real gateway, with the scripted model client.
+
+- [ ] T135 [P] [US1] Playwright: "go back a bit" acknowledged within one second and applied when the assistant acts; pause pressed before the assistant acts applies and the seek is refused `overtaken_by_newer_command` (FR-038, SC-001), in `tests/e2e/assistant-playback.spec.ts`
+- [ ] T136 [P] [US2] Playwright: find, then "only the short ones" spending no quota, then "play the third one"; with the results view closed, the assistant is told the view is not open rather than acting on a stale listing (FR-016, FR-035, SC-012), in `tests/e2e/assistant-discovery.spec.ts`
+- [ ] T137 [P] [US3] Playwright: every assistant tool call appears once in the activity record under its command; an assistant entry can be undone; "what did you just do?" matches the record (FR-029, FR-030, FR-033), in `tests/e2e/assistant-activity.spec.ts`
+- [ ] T138 [P] [US4] Playwright: an assistant removal names its target and waits; "maybe" refuses; a bulk change over five states the count (FR-026, FR-027, FR-028), in `tests/e2e/assistant-curation.spec.ts`
+
+---
+
+## Phase 14: Live verification and evidence
+
+**Purpose**: The runs that need the real key and network, and the evidence the constitution requires.
+
+- [ ] T139 Live Scenario 7 against the real backend, key and page — availability after listing, a find-and-narrow turn, the closed-view refusal, a cancelled turn, and a replayed ticket refused at the upgrade — in `tests/e2e-live/assistant.live.spec.ts`
+- [ ] T140 Live timing: acknowledgement and result for SC-001 and SC-012 measured from end of input; if SC-012 fails, pull R9's levers in order and record the measurements and what was pulled, in `tests/e2e-live/timing.live.spec.ts` and `specs/001-voice-video-control/research.md`
+- [ ] T141 Extend the break-it pass with named mutations for: the fence checked at entry instead of application, `commandId` not overwritten, the upgrade accepting before redemption, the allowance checked after model work, and a player tool not awaiting confirmation, in `scripts/break-it-pass.mjs`
+- [ ] T142 Reconcile the projections — contracts, data model, quickstart, and this file's "Found after closeout" entries marked resolved — and record in `.claude/kaliper/phased-implement/NOTES.md` every incident the green suite missed during these phases
 
 ---
 
@@ -312,7 +507,26 @@ US3 (T063–T071)  — needs actions to exist; US1 alone is sufficient
 US4 (T072–T081)  — builds on US3's record and undo
    ↓
 Polish (T082–T090)
+   ↓
+── Revision 2026-09-13 ──────────────────────────────
+Setup (T091–T094)
+   ↓
+Tool surface + issue fence (T095–T109)  ← BLOCKS every conversational task
+   ↓                         ↘
+US1 real player (T110–T117)    (independent of the gateway; may run beside T118–T125)
+   ↓
+Gateway + MCP client (T118–T125)
+   ↓
+Turns, allowance, turn client (T126–T134)
+   ↓
+Every story, conversationally (T135–T138)  — US1–US4 independent of each other
+   ↓
+Live verification and evidence (T139–T142)
 ```
+
+The plan puts the player first; it is placed after the fence here only because T115 changes tools the
+fence wraps. If the fence slips, T110–T117 can land first — T102 then adapts the awaited tools rather
+than the other way round.
 
 ### User Story Dependencies
 
@@ -332,6 +546,12 @@ Polish (T082–T090)
 | US2 | T048–T050 (tests); T054, T055, T058, T059, T062 |
 | US3 | T063–T065 (tests); T069 |
 | US4 | T072–T074 (tests); T075, T076, T079, T080 |
+| Revision setup | T093, T094 |
+| Tool surface + fence | T095–T098 (tests); T106–T109 (one view each, after T101–T105) |
+| US1 real player | T110–T112 (tests) |
+| Gateway | T118, T119 (tests) |
+| Turns | T126–T128 (tests) |
+| Conversational stories | T135–T138 |
 
 Tool declarations in separate files parallelize well; anything touching `src/player/player.ts`,
 `src/catalog/results.ts` or the activity writer does not.
@@ -350,6 +570,15 @@ before their phase is estimated than after it is half-built.
 
 **T006 is not paperwork.** Until `gates.json` names real commands, every `kaliper:phased-implement`
 gate reports NOT RUN, and the phase workflow this project is built around does nothing.
+
+**Revision 2026-09-13 — the MVP of the revision is Phases 8–12 plus T135.** That is the first moment
+a person can type something the matcher does not recognise and watch the real player respond. Phase 10
+alone is worth shipping first if the gateway slips: it replaces a stand-in with the product.
+
+**Two rules this revision exists because of.** A task naming a behaviour is not done when a file with
+that name exists — T020, T031 and T034 were. And a deterministic run never stands in for a live one:
+T131's scripted client refuses to start beside a real key, and every story phase has a live
+counterpart in `tests/e2e-live/`.
 
 **Each checkpoint is a demo.** Stop at any of them and what exists works by hand and by voice, with
 the assistant's actions visible and reversible from US3 onward.

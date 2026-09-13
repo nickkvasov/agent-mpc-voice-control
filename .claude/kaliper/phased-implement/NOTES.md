@@ -223,6 +223,71 @@ fails the pass, rather than quietly shrinking coverage as the source moves.
 it is given nothing to check — if that is indistinguishable from success, it is
 not a check.
 
+### 2026-09-13 — the first real credentials found a stand-in behind every green gate
+
+**What happened.** Adding a YouTube key should have been enough to verify the one
+"unverified" path. It was not: both backend fetchers threw unconditionally, so
+there was no client to verify. Driving the real page with a real key then showed
+every duration as 0 (a `?? 0` in the page's client), and clicking **Play** on a
+real result answered "Would play … once the player embed lands" — the player the
+whole of US1 was gated on is an in-memory stand-in, and T031 was marked done
+with only its interface written.
+
+**Why the gates missed it.** Every layer was tested against a double of the layer
+below, and every double was well-behaved: fixtures always had durations, the
+stand-in player always had a video. The phase closeout checked that projections
+*agreed*; a stand-in agrees with everything. "Unverified — no key" was written
+down as the gap, and that phrasing hid that there was nothing to put a key into.
+
+**Standing rules.**
+- A gap is described by what *exists*, never by what is missing to test it. "No
+  key" and "no client" call for different work.
+- A task whose text names handlers or an embed is not done when an interface is.
+  Check the named behaviour, not the named file.
+- A stand-in in `App.tsx` is a finding at every Gate B until it is gone. The live
+  gate drives the product; driving a stand-in is `NOT RUN` for whatever it stands
+  in for.
+
+### 2026-09-13 — the dev server handed out both API keys
+
+**What happened.** Credentials were added as `dev.env` in the project root. Git
+did not ignore it, and Vite's dev server served it: `GET /dev.env`, `?raw` and
+`/@fs/<root>/dev.env` all returned 200 with both keys. Vite's default deny list
+covers `.env` and `.env.*`, not `*.env`. Codex raised it in review; requesting the
+file confirmed it. The e2e sentinel test failed on all six probes before the deny
+rule and passes after.
+
+**Standing rules.**
+- A new file holding a secret is checked against *every* server that serves the
+  tree, not only against git. `.gitignore` protects the history, not the port.
+- `server.fs.deny` replaces Vite's defaults; restate them when adding to it.
+- zsh ties `path` to `PATH`: a `for path in …` loop wiped the command path and the
+  first probe reported "no key lines" having run nothing. A probe that cannot
+  fail is not evidence — look at the status code before the verdict.
+
+### 2026-09-13 — ten codex rounds on one adapter, and what kept recurring
+
+Ten review rounds on the YouTube client, every finding verified, every one real.
+Seven were the same defect in new places: **a failure hardening into an
+answer** — an unreadable 200, a wrong-shaped 200, a throttle, a `PT0S` live
+video, a failed duration lookup, a backtracked chapter timestamp, each becoming
+a cached determination. Three were **waits nobody bounded** — the refill on a hit,
+the fill on a fresh search, and upstream itself — each holding "pause" through the
+shared command chain.
+
+Twice the test written for a race could not fail: once it passed with the bug
+restored, once it failed only by hanging. Both surfaced because break-it was run
+on the test, not assumed.
+
+**Standing rules.**
+- For any upstream call, enumerate before writing it: non-200, unreadable 200,
+  wrong-shaped 200, throttle vs exhaustion, a zero that means "not yet", and no
+  response at all. Each gets a test that says which of *failure* or *unknown* it
+  becomes — never an empty or zero answer.
+- Any `await` in a path the command chain waits on needs a bound, and a test that
+  stalls it.
+- A race test is not written until the bug has been reproduced outside it.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
@@ -335,3 +400,25 @@ gone); queue X then clear → blocked.
 
 Add further entries as under-determined decisions arise — two defensible readings of the spec, not
 merely hard problems.
+
+### 2026-09-13 — how does the page know which assistant command a tool call belongs to?
+
+**The decision.** FR-038 (clarified 2026-09-13) refuses an assistant action that a newer command in the
+same domain has overtaken. That needs every arriving `tools/call` attributed to its command — and
+`agent-mcp-react` 0.3.0 gives a handler only `(input, { signal, afterRender })`. Options put to codex:
+one turn at a time (wait or refuse), an injected `commandId`, stamping with the oldest running turn's
+sequence, or something better.
+
+**Codex recommended** the injected `commandId`, with schemas derived mechanically so the model never sees
+or sets the field, only the id on the wire, and the fence left in the page. It rejected the others by
+scenario — and corrected my framing of one: I had called oldest-turn stamping "safe but may falsely
+refuse". It is **unsafe**: a newer turn's action stamped with the older sequence lets a genuinely stale
+action through the equality check.
+
+**It also found two holes in the fence itself**: checking at handler entry lets an action that awaits a
+search or confirmation overwrite a newer one when it resumes, so the check must be at application; and
+`playback.next`/`previous` affect the queue, so a tool declares a set of domains, not one.
+
+**Decided**: as recommended (research.md R7). One divergence: the reason is `overtaken_by_newer_command`,
+not codex's `superseded_by_newer_command`, because `superseded` already names an undo state here.
+

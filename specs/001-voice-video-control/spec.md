@@ -167,7 +167,12 @@ exactly the intended references, and that every discarding request halts for con
 - **A reference cannot be resolved.** "Play that one" with nothing selected and no recent context: the
   system asks rather than picking.
 - **Two commands arrive at once.** The person speaks a second command while the first is still being
-  applied; the system must apply them in the order spoken or refuse the second explicitly.
+  applied. In the same domain they apply in the order spoken, or the second is refused explicitly; in
+  different domains neither waits for the other (FR-038). A pause issued while a search is slow applies
+  at once.
+- **A newer command lands while the assistant is still interpreting an older one.** "Go back a bit",
+  then a click on pause before the assistant acts: the pause applies, and the assistant's seek is refused
+  with the reason stated rather than applied over the newer command (FR-038).
 - **The person acts manually mid-command.** They click pause while the assistant is seeking; the manual
   action wins and the assistant reports what it abandoned.
 - **The requested capability is not on screen.** The person asks to change something belonging to a
@@ -183,6 +188,9 @@ exactly the intended references, and that every discarding request halts for con
   it is unambiguously complete.
 - **The microphone is denied or unavailable.** Voice degrades to text with a visible explanation; no
   capability silently disappears.
+- **The assistant's allowance is spent.** The session or the day has used its assistant limit: the
+  assistant shows as unavailable with the reset time, assistant-dependent commands are refused with
+  that reason, and recognised commands and everything by hand keep working (FR-046).
 - **The assistant's connection drops mid-session.** Commands issued while disconnected are refused with
   a clear reason; the visible interface remains fully usable by hand throughout.
 - **Volume control is refused by the platform.** On devices where the player forbids programmatic
@@ -284,8 +292,17 @@ exactly the intended references, and that every discarding request halts for con
   removed, private, age-restricted, region-blocked, or not embeddable.
 - **FR-037**: System MUST keep the visible interface fully usable when the assistant is unavailable or
   disconnected, and MUST show that the assistant is unavailable.
-- **FR-038**: System MUST apply commands in the order issued, or explicitly refuse one that would be
-  applied out of order.
+- **FR-038**: System MUST apply commands in the order issued **within each domain** — playback; the
+  queue; catalog and curation — or explicitly refuse one that would be applied out of order. A command
+  in one domain MUST NOT wait for a command in another. An action the assistant takes is placed in its
+  domain when the assistant performs it; if a command issued after the person's request has already
+  applied in that domain, the assistant's action MUST be refused with a stated reason rather than
+  applied over it.
+- **FR-046**: System MUST bound assistant use with a per-session limit and a daily limit shared
+  across the whole deployment, checked before each assistant turn begins. When either limit is
+  reached, the system MUST show the assistant as unavailable with the reason and when it becomes
+  available again, MUST refuse assistant-dependent commands with that same reason, and MUST keep
+  recognised commands and the whole interface usable (FR-037).
 
 #### Data handling
 
@@ -321,9 +338,12 @@ exactly the intended references, and that every discarding request halts for con
 
 ### Measurable Outcomes
 
-- **SC-001**: A person can pause, seek, change speed and toggle captions entirely by voice, with the
-  result visible within one second of the person finishing speaking — recognition and assistant
-  round-trip included, not excluded.
+- **SC-001**: A person can pause, seek, change speed and toggle captions entirely by voice. Every
+  playback command is visibly acknowledged within one second of the person finishing speaking —
+  recognition included. A command the application recognises itself has its result visible within that
+  same second. A command that needs the assistant to interpret it has no result deadline: its
+  acknowledgement stays visible until the result or a stated refusal replaces it, and it remains
+  cancellable (FR-004) throughout.
 - **SC-002**: 95% of playback commands spoken in a quiet room by a fluent speaker are carried out
   correctly on the first attempt.
 - **SC-003**: A person can locate and start a specific video by description alone, without touching a
@@ -341,9 +361,13 @@ exactly the intended references, and that every discarding request halts for con
 - **SC-010**: With the assistant disconnected, every task in this specification remains completable by
   hand.
 - **SC-011**: No audio is captured at any moment when the interface does not show that it is capturing.
-- **SC-012**: Discovery, queueing and curation commands produce a visible result within three seconds
-  of the person finishing speaking.
+- **SC-012**: Every discovery, queueing and curation command is visibly acknowledged within one second
+  of the person finishing speaking. One the application handles itself shows its result within three
+  seconds. One the assistant must interpret shows its result within ten seconds; a turn that runs past
+  ten seconds is shown as late — never hidden or silently dropped — and stays cancellable (FR-004).
 - **SC-013**: No raw audio leaves the person's device, under any command.
+- **SC-014**: No session and no day exceeds its assistant limit, and every command refused for that
+  reason states which limit was reached and when it resets.
 
 ## Assumptions
 
@@ -400,6 +424,38 @@ exactly the intended references, and that every discarding request halts for con
   unavailable.
 
 ## Clarifications
+
+### Session 2026-09-13
+
+- **Q: What latency applies to a playback command the application cannot recognise itself, so the
+  assistant must interpret it?** → **A: Acknowledge every playback command within one second; no result
+  deadline for assistant-interpreted ones.** Supersedes the 2026-09-12 split for that path. Live
+  verification measured an assistant turn at 6.2s ("go back a bit"), which no hosted model reliably
+  brings under one second once network time is included. SC-001 now separates the two paths: recognised
+  commands keep the one-second result; assistant-interpreted commands owe a one-second
+  acknowledgement, which stays visible until replaced by a result or a stated refusal and stays
+  cancellable. Accepted trade-off: nothing bounds a slow assistant turn except the person cancelling it.
+- **Q: When an earlier command is slow, does a later one wait?** → **A: Order is kept within a domain
+  — playback, the queue, catalog and curation — and never across domains.** An assistant action takes
+  its place when the assistant performs it; if a newer command has already applied in that domain, the
+  assistant's action is refused with a stated reason. FR-038 and the "two commands" edge case were
+  rewritten; a new edge case covers the assistant being overtaken. Why: with one global order, a pause
+  waited up to 5s behind a stalled search (reproduced), and after the answer above it would wait
+  without bound behind the assistant. Strict order across unrelated state bought nothing — a pause
+  cannot conflict with a search — while the one hazard FR-038 exists for, an older spoken request
+  silently overriding a newer click, is kept as a refusal.
+- **Q: In an anonymous deployment, who may spend the assistant?** → **A: Anyone, within a
+  per-session limit and a daily deployment-wide limit, like search.** New FR-046, SC-014 and an edge
+  case. Why: FR-042 keeps access anonymous and the quota answer already assumes several people share a
+  deployment, but every assistant turn is billed to the deployment's key and nothing bounded it. The
+  catalog budget is the precedent — a spent allowance is a stated, expected condition, and the
+  interface stays usable by hand. The limit values are a planning decision.
+- **Q: What budget applies to discovery, queueing and curation commands the assistant interprets?** →
+  **A: Acknowledged within one second, result within ten; a late turn is shown as late.** SC-012
+  rewritten; commands the application handles itself keep three seconds. Why: live assistant turns took
+  4.5s and 6.2s before any catalog time, so the old three seconds would have forced a weaker model on
+  that path. Note the deliberate asymmetry with SC-001: an assistant-interpreted *playback* command has
+  no result deadline, a *discovery* one has ten seconds.
 
 ### Session 2026-09-12
 

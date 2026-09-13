@@ -1,6 +1,6 @@
 # Contract: The tool surface the page declares
 
-**Feature**: `001-voice-video-control` | **Date**: 2026-09-12
+**Feature**: `001-voice-video-control` | **Date**: 2026-09-12, revised 2026-09-13
 
 This is the feature's primary external interface: the typed actions `agent-mcp-react` publishes from
 the running page, which the agent calls instead of clicking. It is the **single owner** of what an
@@ -18,18 +18,35 @@ them (IMMUNE-N).
 4. **Tools exist only while the UI that declares them is on screen.** A call to an absent tool is
    reported as unavailable, naming the view that owns it (FR-035).
 5. **Tools that discard curation declare `confirmation: 'required'`** (FR-026).
+6. **Every mutating tool declares the domains it affects** — `playback`, `queue`, `catalog_curation`
+   — and is ordered only against those (FR-038, R7). `playback.next`/`previous` declare `playback` and
+   `queue`; `activity.undo` takes the domains of the entry it reverses. A mutating tool declaring none is
+   refused at declaration. The order check runs **at application**, not at handler entry.
+8. **Every tool's input carries the reserved `commandId`**, defined once and added to each schema
+   mechanically. It names the page's own command record; an unknown, cancelled, finished or foreign id
+   is refused. The assistant never sees or sets it: the backend strips it from the schema shown to the
+   model and writes the turn's id into every forwarded call. Local callers get it from the same command
+   owner (R7). It is the only attribution on the wire — `issueSeq` never leaves the page.
+7. **A mutating playback tool reports what the player confirmed**, awaited for at most one second, never
+   what it asked for (R10). No confirmation within the bound is `refused_by_player` with the state the
+   player actually reports.
 
 ## Shared failure reasons
 
 `not_playing` · `no_such_video` · `ambiguous_reference` · `unavailable_video` ·
 `refused_by_player` · `ad_in_progress` · `capability_unsupported` · `quota_exhausted` ·
-`view_not_open` · `needs_confirmation` · `not_reversible`
+`view_not_open` · `needs_confirmation` · `not_reversible` · `superseded` · `arguments_invalid` ·
+`effect_unverifiable` · **`overtaken_by_newer_command`** (FR-038 — names the newer command) ·
+**`autoplay_blocked`** (the browser refused to start playback; a press is needed — R10)
+
+`assistant_unavailable` and `assistant_allowance_spent` are not tool reasons: they refuse a turn before
+any tool runs, and belong to [backend-http.md](./backend-http.md).
 
 ---
 
 ## Playback — `playback.*`
 
-Declared by the player view. These are the tools the local matcher may call (R3).
+Domain `playback`. Declared by the player view. These are the tools the local matcher may call (R3).
 
 | Tool | Input | Returns | Notes |
 |---|---|---|---|
@@ -52,7 +69,7 @@ Any of these called while `adPlaying` returns `ok: false, reason: "ad_in_progres
 
 ## Discovery — `catalog.*`
 
-Declared by the browse view.
+Domain `catalog_curation`. Declared by the browse view.
 
 | Tool | Input | Returns | Notes |
 |---|---|---|---|
@@ -69,6 +86,8 @@ not a UI nicety.
 
 ## Queue — `queue.*`
 
+Domain `queue`.
+
 | Tool | Input | Returns | Notes |
 |---|---|---|---|
 | `queue.add` | `{ videoIds: string[], position?: "next" \| "end" }` | `{ queue }` | >5 items requires confirmation (FR-027) |
@@ -81,7 +100,7 @@ not a UI nicety.
 
 ## Curation — `curation.*`
 
-All mutate the person's own data. All are reversible, so all carry an `inverse` for FR-030.
+Domain `catalog_curation`. All mutate the person's own data. All are reversible, so all carry an `inverse` for FR-030.
 
 | Tool | Input | Returns | Confirmation |
 |---|---|---|---|
