@@ -32,6 +32,12 @@ export function McpRoot({ children, getTicketUrl }: McpRootProps) {
       server={{ name: 'voice-video-control', version: '0.1.0' }}
       capabilities={CAPABILITIES}
       validation={{ validator: createAjvValidator() }}
+      // Arguments on observed calls. A call refused before any handler has no
+      // handler to record what it was called with, and the activity record must
+      // say (data-model ActivityRecord). Never enabled before Phase 9 — every
+      // such entry stored `arguments: null` (Gate C round 6). Page-local: these
+      // events never leave the page.
+      observability={{ payloads: 'values' }}
       // Terminal call events feed the activity record. Start is not recorded:
       // one call must produce exactly one entry (SC-006).
       onToolResult={(event) => recordObservedCall(recorder, event)}

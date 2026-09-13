@@ -43,10 +43,14 @@ describe('observed calls become activity entries only when no handler ran', () =
     const r = rec();
     recordObservedCall(r, {
       phase: 'error', callId: 3, name: 'playback.seek', gates: gates('notRun', 'refused'),
+      arguments: { mode: 'sideways', seconds: 5, commandId: 'cmd-7' },
       failure: { vocabulary: 'runtime', code: 'MCP_TOOL_ARGUMENTS_INVALID' },
     });
     expect(r.entries()).toHaveLength(1);
     expect(r.entries()[0]?.refusalReason).toBe(REFUSAL_REASON.argumentsInvalid);
+    // No handler ran to record what it was called with, so the observer must (data-model ActivityRecord).
+    expect(r.entries()[0]?.arguments).toEqual({ mode: 'sideways', seconds: 5, commandId: 'cmd-7' });
+    expect(r.entries()[0]?.commandId).toBe('cmd-7');
     expect(r.entries()[0]?.failureDetail).toBe('MCP_TOOL_ARGUMENTS_INVALID');
   });
 

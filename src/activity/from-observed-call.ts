@@ -87,8 +87,15 @@ export function recordObservedCall(recorder: ActivityRecorder, event: ObservedCa
     throw new Error(`Observed call ${String(event.callId)} (${event.name}) produced a result without running its handler`);
   }
 
+  const args = event.arguments;
+  const commandId =
+    args !== null && typeof args === 'object' && typeof (args as Record<string, unknown>)['commandId'] === 'string'
+      ? ((args as Record<string, unknown>)['commandId'] as string)
+      : null;
   recorder.record({
     callId: `${event.route ?? 'agent'}:${String(event.callId)}`,
+    // Attributed like any other entry, when the refused call named its command.
+    commandId,
     toolName: event.name,
     arguments: event.arguments ?? null,
     description: `Refused ${event.name}.`,
