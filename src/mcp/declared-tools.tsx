@@ -53,7 +53,7 @@ function DeclaredTool({ tool }: { tool: ToolName }) {
     description: TOOL_DESCRIPTIONS[tool],
     inputSchema: wireSchema(tool),
     handler: async (args, context) => {
-      handlerStarts.begin(tool, args);
+      handlerStarts.begin(tool, args, context.signal);
       const { commandId, input } = withoutCommandId(args);
       const resolved = surface.commands.resolveForCall(commandId ?? '');
       if (!resolved.ok) {

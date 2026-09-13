@@ -122,6 +122,30 @@ export function planTags(
   adding: boolean,
   confirmedCount?: number,
 ): ToolResult<TagPlan> {
+  const plan = previewTags(videos, tags, adding);
+  if (!plan.ok) return plan;
+  const { changed } = plan.value;
+  if (changed.length > BULK_THRESHOLD && confirmedCount !== changed.length) {
+    return refuse(
+      REFUSAL_REASON.needsConfirmation,
+      `That would ${adding ? 'tag' : 'untag'} ${String(changed.length)} videos. Confirm that count to go ahead.`,
+    );
+  }
+  return plan;
+}
+
+/**
+ * What a tag batch would change, WITHOUT the confirmation gate — for asking the
+ * person how many videos will change before they are asked to confirm it.
+ * Passing an impossible confirmed count to `planTags` instead refused every
+ * bulk preview, so nobody was ever asked and bulk tagging could not succeed
+ * (Phase 9 Gate C round 2).
+ */
+export function previewTags(
+  videos: readonly VideoReference[],
+  tags: readonly string[],
+  adding: boolean,
+): ToolResult<TagPlan> {
   const normalised = [...new Set(tags.map(normaliseTag))];
   if (normalised.length === 0 || normalised.some((t) => t === '')) {
     return refuse(REFUSAL_REASON.argumentsInvalid, 'Every tag needs some text; nothing was changed.');
@@ -140,12 +164,6 @@ export function planTags(
     return adding
       ? refuse(REFUSAL_REASON.argumentsInvalid, videos.length === 1 ? `That video is already tagged ${quoted}.` : `All of them are already tagged ${quoted}.`)
       : refuse(REFUSAL_REASON.noSuchVideo, `None of those are tagged ${quoted}.`);
-  }
-  if (changed.length > BULK_THRESHOLD && confirmedCount !== changed.length) {
-    return refuse(
-      REFUSAL_REASON.needsConfirmation,
-      `That would ${adding ? 'tag' : 'untag'} ${String(changed.length)} videos. Confirm that count to go ahead.`,
-    );
   }
   return ok({ tags: normalised, next, changed, unchanged });
 }

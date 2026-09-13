@@ -241,5 +241,17 @@ describe('Phase 9 Gate C findings, each reproduced before it was fixed', () => {
     expect(tagsOf(A)).toEqual([]);
     expect(recorder.entries().at(-1)).toMatchObject({ result: 'failed' });
   });
+
+  it('[round 2, P1] bulk tagging above the threshold asks for the count and applies when it is given', async () => {
+    const six = ['T0000000001', 'T0000000002', 'T0000000003', 'T0000000004', 'T0000000005', 'T0000000006'];
+    const { commands, actions, asked, tagsOf } = setup([], {
+      videos: six.map((id) => vid(id)),
+      answer: (q) => /(\d+) videos/.exec(q)?.[1] ?? null,
+    });
+    const r = await actions[TOOL.curationAddTags](commands.issue('agent'), { videoIds: six, tags: ['onboarding'] });
+    expect(asked.at(-1)).toContain('6 videos');
+    expect(r.ok).toBe(true);
+    for (const id of six) expect(tagsOf(id)).toEqual(['onboarding']);
+  });
 });
 

@@ -9,25 +9,40 @@
  * confirmed in the library's invocation.js).
  *
  * The handler does not see the call's `callId`, so the join is on what both
- * sides see: tool name and arguments, `commandId` included. Two starts with
- * identical keys are interchangeable — same tool, same input, same command —
- * so a multiset is exact, not a heuristic.
+ * sides see — tool name and arguments, `commandId` included — narrowed by the
+ * invocation's own signal, which is aborted exactly when that call was cancelled.
  */
 export class HandlerStarts {
-  readonly #counts = new Map<string, number>();
+  readonly #starts = new Map<string, AbortSignal[]>();
 
-  begin(tool: string, args: unknown): void {
+  /** Called first thing in a handler, with that invocation's own signal. */
+  begin(tool: string, args: unknown, signal: AbortSignal): void {
     const key = keyOf(tool, args);
-    this.#counts.set(key, (this.#counts.get(key) ?? 0) + 1);
+    const list = this.#starts.get(key) ?? [];
+    list.push(signal);
+    this.#starts.set(key, list);
   }
 
-  /** True, and consumed, when a handler started for this call. */
-  consume(tool: string, args: unknown): boolean {
+  /**
+   * True, and consumed, when this terminal belongs to an invocation whose
+   * handler started.
+   *
+   * Arguments alone could not tell identical concurrent calls apart: a call
+   * cancelled before its handler consumed the start of an identical call still
+   * running, and went unrecorded (Gate C round 2). The invocation's own signal
+   * separates them — a cancelled call's signal is aborted, a running one's is
+   * not — so a cancellation matches only an aborted start, and a completed call
+   * only a live one. Two identical cancelled starts are indistinguishable, and
+   * matching them one each keeps the count exact.
+   */
+  consume(tool: string, args: unknown, cancelled: boolean): boolean {
     const key = keyOf(tool, args);
-    const n = this.#counts.get(key) ?? 0;
-    if (n === 0) return false;
-    if (n === 1) this.#counts.delete(key);
-    else this.#counts.set(key, n - 1);
+    const list = this.#starts.get(key);
+    if (list === undefined) return false;
+    const index = list.findIndex((signal) => signal.aborted === cancelled);
+    if (index === -1) return false;
+    list.splice(index, 1);
+    if (list.length === 0) this.#starts.delete(key);
     return true;
   }
 }

@@ -36,6 +36,8 @@ export interface ObservedCallLike {
 }
 
 const INVOKE_STEP = 'invoke';
+const CALL_CANCELLED = 'MCP_TOOL_CALL_CANCELLED';
+const CALL_ABANDONED = 'MCP_TOOL_CALL_ABANDONED';
 const NOT_RUN = 'notRun';
 
 function codeOf(failure: ObservedFailureLike | undefined): string | undefined {
@@ -67,12 +69,18 @@ export function recordObservedCall(
     // acceptable evidence, so the malformed event is reported, not absorbed.
     throw new Error(`Observed call ${String(event.callId)} (${event.name}) carries no ${INVOKE_STEP} gate; cannot tell whether a handler ran`);
   }
-  // Consumed unconditionally, so every handler start is matched to exactly one terminal.
-  const started = starts.consume(event.name, event.arguments);
-  // A handler ran: the handler path recorded this call with its real outcome
-  // and effect. `invoke` alone is not enough — the library's cancellation path
-  // leaves it `notRun` even after the handler ran (Phase 9 Gate C).
-  if (invoke.outcome !== NOT_RUN || started) return;
+  if (invoke.outcome !== NOT_RUN) {
+    // The handler ran and recorded this call; retire its start.
+    starts.consume(event.name, event.arguments, false);
+    return;
+  }
+  // `notRun` is not proof no handler ran: the library's cancellation path leaves
+  // it unmarked. A cancelled call is skipped only if ITS handler started — its
+  // signal is the aborted one (Phase 9 Gate C, rounds 1 and 2). Any other
+  // pre-handler refusal never reached a handler, so it is recorded here.
+  const code = codeOf(event.failure);
+  const cancelled = code === CALL_CANCELLED || code === CALL_ABANDONED;
+  if (cancelled && starts.consume(event.name, event.arguments, true)) return;
 
   const base = {
     callId: `${event.route ?? 'agent'}:${String(event.callId)}`,

@@ -12,7 +12,7 @@ import {
   addToCollection, createCollection, deleteCollection, removeFromCollection,
   type Collection, type CollectionsState,
 } from '../curation/collections.ts';
-import { planTags, setLabel } from '../curation/annotations.ts';
+import { planTags, previewTags, setLabel } from '../curation/annotations.ts';
 import { resolveConfirmation, resolveCountedConfirmation } from '../mcp/confirmation-resolver.ts';
 import { ok, refuse, type ToolResult } from '../mcp/result.ts';
 import { refuseUnsupportedCapability } from '../mcp/tool-availability.ts';
@@ -399,7 +399,7 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     const ids = strs(i['videoIds']);
     const tags = strs(i['tags']);
     // The count that will actually change, planned against current tags (Gate C).
-    const preview = planTags(findVideos(ids).found, tags, adding, Number.MAX_SAFE_INTEGER);
+    const preview = previewTags(findVideos(ids).found, tags, adding);
     const affected = preview.ok ? preview.value.changed.length : 0;
     const confirmed = countedAbove(affected, `${adding ? 'Tag' : 'Untag'} ${String(affected)} videos? Type the number to confirm.`);
     return run(sig, tool, c, i, `${adding ? 'Tag' : 'Untag'} ${ids.join(', ')} "${tags.join('", "')}"`, () => {

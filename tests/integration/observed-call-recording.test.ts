@@ -71,39 +71,54 @@ describe('observed calls become activity entries only when no handler ran', () =
   });
 });
 
-describe('a cancellation after the handler started is not a second entry (Phase 9 Gate C)', () => {
+describe('a cancellation is matched to the invocation it belongs to (Phase 9 Gate C, rounds 1 and 2)', () => {
   const rec = () => new ActivityRecorder(createInMemoryActivityStore());
-  const cancelledEvent = (callId: number, args: unknown): ObservedCallLike => ({
-    phase: 'error', callId, name: 'queue.add', arguments: args,
-    // The library's cancellation path leaves `invoke` at notRun even when the handler ran.
-    gates: gates('notRun'),
-    failure: { vocabulary: 'runtime', code: 'MCP_TOOL_CALL_CANCELLED' },
-  });
+  const args = { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-3' };
+  const terminal = (callId: number, kind: 'cancelled' | 'passed'): ObservedCallLike =>
+    kind === 'cancelled'
+      ? {
+          phase: 'error', callId, name: 'queue.add', arguments: { ...args },
+          // The library's cancellation path leaves `invoke` at notRun even when the handler ran.
+          gates: gates('notRun'),
+          failure: { vocabulary: 'runtime', code: 'MCP_TOOL_CALL_CANCELLED' },
+        }
+      : { phase: 'result', callId, name: 'queue.add', arguments: { ...args }, gates: gates('passed') };
 
-  it('skips a cancelled call whose handler started — the handler recorded it', () => {
+  it('skips a cancelled call whose own handler started — that handler recorded it', () => {
     const r = rec();
     const starts = new HandlerStarts();
-    const args = { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-3' };
-    starts.begin('queue.add', args);
-    recordObservedCall(r, cancelledEvent(7, { commandId: 'cmd-3', videoIds: ['M7lc1UVf-VE'] }), starts);
+    const b = new AbortController();
+    starts.begin('queue.add', args, b.signal);
+    b.abort();
+    recordObservedCall(r, terminal(7, 'cancelled'), starts);
     expect(r.entries()).toHaveLength(0);
   });
 
   it('records a cancelled call whose handler never started', () => {
     const r = rec();
-    const starts = new HandlerStarts();
-    recordObservedCall(r, cancelledEvent(8, { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-4' }), starts);
+    recordObservedCall(r, terminal(8, 'cancelled'), new HandlerStarts());
     expect(r.entries()).toHaveLength(1);
   });
 
-  it('two identical starts are matched one each, never both by one event', () => {
+  it('an identical call still running is not mistaken for the cancelled one (codex round 2)', () => {
     const r = rec();
     const starts = new HandlerStarts();
-    const args = { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-5' };
-    starts.begin('queue.add', args);
-    recordObservedCall(r, cancelledEvent(9, args), starts);
-    recordObservedCall(r, cancelledEvent(10, args), starts);
+    const a = new AbortController();
+    starts.begin('queue.add', args, a.signal); // A is in its handler, not cancelled
+    recordObservedCall(r, terminal(9, 'cancelled'), starts); // B, identical, cancelled before its handler
+    expect(r.entries()).toHaveLength(1); // B is recorded
+    recordObservedCall(r, terminal(10, 'passed'), starts); // A finishes; its handler recorded it
+    expect(r.entries()).toHaveLength(1);
+  });
+
+  it('two identical cancelled starts are matched one each, never both by one event', () => {
+    const r = rec();
+    const starts = new HandlerStarts();
+    const a = new AbortController();
+    starts.begin('queue.add', args, a.signal);
+    a.abort();
+    recordObservedCall(r, terminal(11, 'cancelled'), starts);
+    recordObservedCall(r, terminal(12, 'cancelled'), starts);
     expect(r.entries()).toHaveLength(1);
   });
 });
-
