@@ -21,6 +21,12 @@ export const MCP_PATH = '/mcp';
 
 export interface Gateway {
   connectionFor(sessionId: string, tabId: string): PageConnection | undefined;
+  /**
+   * Whether that tab has an open socket that is not published yet — initializing
+   * or having its tools listed. The page's own status already says connected by
+   * then, so a turn arriving now should wait for it, not be refused (T139).
+   */
+  isConnecting(sessionId: string, tabId: string): boolean;
   /** Resolves once that tab's connection has completed `initialize`. */
   waitFor(sessionId: string, tabId: string, timeoutMs: number): Promise<PageConnection>;
   /** How many waits are outstanding — observable so abandoned waits can be shown not to accumulate. */
@@ -132,6 +138,7 @@ export function attachGateway(http: HttpServer, options: { readonly initializeTi
 
   return {
     connectionFor: (sessionId, tabId) => connections.get(keyOf(sessionId, tabId)),
+    isConnecting: (sessionId, tabId) => sockets.has(keyOf(sessionId, tabId)) && !connections.has(keyOf(sessionId, tabId)),
     waitFor(sessionId, tabId, timeoutMs) {
       const key = keyOf(sessionId, tabId);
       const existing = connections.get(key);

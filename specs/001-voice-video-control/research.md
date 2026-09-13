@@ -383,6 +383,28 @@ in one iteration, (2) the cached tool listing from R6, which removes a round tri
 (3) lower reasoning effort on this path. Changing model is the last lever, not the first — the clarify
 session chose a ten-second budget precisely so this path would not be forced onto a weaker model.
 
+**Measured live (T140, 2026-09-14, `claude-opus-5`, adaptive thinking, from end of typed input).**
+Acknowledgement is local and was 36–47 ms on every turn; SC-001's recognised path applied `pause` in
+55–57 ms. SC-012 **failed** on the first run: "find talks about regular expressions" finished at
+14.4 s. A step-by-step trace of a second discovery turn put the time here — 2.5 s for the model to
+decide on the search, 1.4 s for the search, and **9.7 s writing a summary of all 25 results**, which
+the person could already see on the page. The cost was output, not tools or network.
+
+Lever (1) was pulled: the system prompt now asks for the fewest precise calls, independent calls in
+parallel in one step, and a reply of one or two short sentences that does not list or summarise what
+is already on screen. Lever (2) was already in place (Phase 11). Lever (3) was not needed.
+
+| Turn | Before lever 1 | After (run 1) | After (run 2) |
+|---|---|---|---|
+| SC-012 discovery — "find talks about regular expressions" | 14.4 s ✗ | 6.4 s | 6.4 s |
+| SC-012 queueing — "queue the first two of those results" | 7.4 s | 6.9 s | 7.4 s |
+| SC-001 assistant playback — "go back a bit" (acknowledged; no result budget) | 7.9 s | 6.4 s | 5.9 s |
+
+Two runs is evidence, not a distribution: a request needing several searches, or a long answer the
+person asked for, can still exceed ten seconds, and is then shown as *late* rather than hidden. The
+timing test (`tests/e2e-live/timing.live.spec.ts`) runs with the live gate, so a regression here is
+seen at the next live run.
+
 A single *late* rule (ten seconds, any domain) is used rather than tracking which success criterion a
 turn falls under, because the page cannot know a turn's domain until the assistant acts. For playback
 this is additional information, not a deadline: SC-001 sets none for this path, and saying "this is

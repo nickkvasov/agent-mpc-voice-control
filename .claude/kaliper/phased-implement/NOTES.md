@@ -438,6 +438,50 @@ as an invitation to confirm again. Questions and record entries now name videos 
 declined confirmation says what was asked and what was answered. Re-run live: the model reported
 "Nothing was removed… 'maybe' doesn't count as a yes."
 
+### 2026-09-14 — Phase 14: what the live Scenario 7 and the timing run found
+
+- **"Available" before it was.** The page's status turns connected when its MCP handshake completes;
+  the backend published the connection only after listing the page's tools, a round trip later. A
+  command sent in that gap got `409 assistant_unavailable` under a page that said the assistant was
+  there. Every e2e waited for "connected" and then did something else first, so none sent into the gap.
+  A turn now waits, up to three seconds, for a tab whose socket is open but not yet listed; a tab with
+  no socket is still refused at once.
+- **A closed view the model could not name.** With the results hidden, the real model took no stale
+  action — but said only that it could not tell what "the third one" meant. It had no way to know which
+  view provides tools it cannot see. The system prompt now names each view and its tools, from the same
+  map the page's `view_not_open` refusals use; live, it then said to open the search results panel.
+- **SC-012 failed live: 14.4 s** for "find talks about regular expressions". A trace put 9.7 s of it in
+  the model writing a summary of 25 results already on screen. R9's first lever — precise calls,
+  parallel calls, a one-or-two-sentence reply — brought it to 6.4 s on two runs (research.md R9).
+- **A break-it mutation came back GREEN.** Moving the fence check from lane-hold to call arrival
+  changed no test. The two agree unless a newer command reached the lane first and is still applying
+  when the older arrives — never set up by any test. That test now exists, and the mutation is one of
+  the 17 checks in `scripts/break-it-pass.mjs`.
+
+### Incidents the green suite missed, Phases 8–14 (T142)
+
+Each is written up above; this is the index. A "green suite" here means every fast and e2e gate passed
+at the time.
+
+| Phase | Missed by the suite | Caught by |
+|---|---|---|
+| 8 | `dev.env` not ignored and served by Vite | reading the config with credentials present |
+| 8 | No YouTube client at all; missing durations became 0 | first real key (Gate B) |
+| 9 | No tool published to MCP; two recorders; every observed result recorded as success | mapping tasks to files; Gate C |
+| 10 | Three specs loading the real YouTube API; frozen position; "0 min" for short videos; playVideo confirming the old state | Gate B on the real embed |
+| 11 | Two tabs of one session in a reconnect loop | Gate B, two tabs |
+| 11 | A malformed upgrade URL ended the process | Gate C |
+| 12 | A top-level `oneOf` made the real API refuse every turn | first real turn (Gate B) |
+| 12 | A cancelled search applied its late results; raw API JSON shown to the person | Gate B |
+| 12 | Hidden Cancel, "applied" for refused turns, "Nothing was done" after actions | Gate C |
+| 13 | No way for the assistant to find an existing collection; results view could not close; stale tool names mid-turn | writing the conversational specs |
+| 13 | Confirmations naming videos by id; a declined confirmation read as still open | Gate B, real model |
+| 13 | The discovery e2e passed with a wrong resolver (hard-coded id) | Gate C |
+| 14 | "Available" before the backend had listed the tools | planning the live row, then an integration test |
+| 14 | The model could not name a closed view | live Scenario 7 |
+| 14 | SC-012 at 14.4 s | live timing |
+| 14 | No test separated lane-hold from arrival for the fence check | break-it pass (GREEN mutation) |
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

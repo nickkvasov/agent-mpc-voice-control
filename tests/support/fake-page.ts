@@ -24,7 +24,12 @@ export interface FakePage {
 }
 
 /** Resolves with the HTTP status when the upgrade is refused, or the page once open. */
-export function dialPage(url: string, tools: readonly FakeTool[]): Promise<{ refused: number } | { page: FakePage }> {
+export function dialPage(
+  url: string,
+  tools: readonly FakeTool[],
+  /** Holds each `tools/list` answer this long: a page whose listing is still on its way. */
+  options: { readonly listDelayMs?: number } = {},
+): Promise<{ refused: number } | { page: FakePage }> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     let current = [...tools];
@@ -38,9 +43,12 @@ export function dialPage(url: string, tools: readonly FakeTool[]): Promise<{ ref
     });
     socket.once('open', () => {
       const server = new Server({ name: 'fake-page', version: '0' }, { capabilities: { tools: { listChanged: true } } });
-      server.setRequestHandler('tools/list', async () => ({
+      server.setRequestHandler('tools/list', async () => {
+        if ((options.listDelayMs ?? 0) > 0) await new Promise((r) => setTimeout(r, options.listDelayMs));
+        return {
         tools: current.map(({ name, description, inputSchema }) => ({ name, description, inputSchema: { type: 'object' as const, ...inputSchema } })),
-      }));
+        };
+      });
       server.setRequestHandler('tools/call', async (request, ctx) => {
         const { name, arguments: args = {} } = request.params as { name: string; arguments?: Record<string, unknown> };
         calls.push({ name, args });

@@ -104,11 +104,17 @@ One instruction from the person, and what became of it.
 | `issueSeq` | integer | Monotonic across every modality, assigned when the command is **issued** — at release of the talk control, not when its transcript arrives. The ordering key for FR-038 (R7). |
 | `outcome` | enum | `applied` \| `partially_applied` \| `refused` \| `cancelled` \| `awaiting_confirmation`. |
 | `revoked` | boolean | Set when cancelled, **before** remote cancellation is sent. A revoked command's late calls are refused whatever the fence says (R7). |
-| `refusalReason` | string \| null | Required and non-empty whenever `outcome` is `refused` (FR-034, SC-009). |
+| `refusalReason` | string \| null | Required and non-empty whenever `outcome` is `refused` (FR-034, SC-009). Carries why an unfinished turn stopped when its outcome is `partially_applied`. |
 
 **State transitions**: `received → interpreted → (awaiting_confirmation →) applied | partially_applied
 | refused | cancelled`. There is no terminal state without either an outcome or a reason — the schema
 makes a silent failure unrepresentable.
+
+**An assistant command's outcome comes from its tool results**, not from the turn's stream ending
+normally: all applied (or none called) → `applied`; some refused → `partially_applied`; all refused →
+`refused`. A turn that did **not** finish — stopped at the step limit, failed, or cancelled — after any
+action applied is `partially_applied`, with why it stopped as `refusalReason`; with nothing applied it
+is `refused`, or `cancelled` (Phase 12 Gate C).
 
 ---
 

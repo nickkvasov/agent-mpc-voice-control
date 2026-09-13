@@ -26,6 +26,8 @@ export interface TurnDeps {
 }
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
+/** How long a turn waits for a tab whose socket is open but whose tools are still being listed. */
+export const CONNECTING_WAIT_MS = 3000;
 const MAX_TEXT = 2000;
 
 function json(res: ServerResponse, status: number, body: Record<string, unknown>): void {
@@ -43,7 +45,15 @@ export async function handleTurn(req: IncomingMessage, res: ServerResponse, body
   const { commandId, tabId, text } = b as { commandId: string; tabId: string; text: string };
 
   const sessionId = sessionFromCookieHeader(req.headers.cookie);
-  const page = sessionId === null ? undefined : deps.gateway.connectionFor(sessionId, tabId);
+  let page = sessionId === null ? undefined : deps.gateway.connectionFor(sessionId, tabId);
+  // The page reports connected when its MCP handshake completes; the backend
+  // publishes the connection only once it has LISTED the page's tools, a round
+  // trip later. A command sent in that gap was refused while the page said the
+  // assistant was available (T139). A tab still connecting is waited for, briefly;
+  // a tab with no socket at all is refused at once.
+  if (sessionId !== null && page === undefined && deps.gateway.isConnecting(sessionId, tabId)) {
+    page = await deps.gateway.waitFor(sessionId, tabId, CONNECTING_WAIT_MS).catch(() => undefined);
+  }
   if (sessionId === null || page === undefined) {
     json(res, 409, { reason: 'assistant_unavailable', detail: 'This tab is not connected to the assistant.' });
     return;

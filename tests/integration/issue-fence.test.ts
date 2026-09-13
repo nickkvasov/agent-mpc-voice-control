@@ -177,3 +177,24 @@ describe('issue fence — order within a domain (FR-038, research R7)', () => {
     expect(applied).toEqual(['holder', 'older', 'newer']);
   });
 });
+
+describe('issue fence — checked when the lane is held, not when the call arrives (T141)', () => {
+  it('an older command placed while a newer one is still applying is refused once it holds the lane', async () => {
+    // The assistant's command was issued first; the person's pause after it. The
+    // pause reached its lane first and is still being read back when the
+    // assistant's seek arrives. At arrival nothing newer has applied, so a check
+    // made then passes — and the seek would overwrite the pause.
+    const { commands, scheduler, applied, act } = harness();
+    const older = commands.issue('agent');
+    const newer = commands.issue('manual');
+    const readback = gate();
+    const pause = scheduler.run(newer, [DOMAIN.playback], act('newer', readback.opened));
+    await tick();
+    const seek = scheduler.run(older, [DOMAIN.playback], act('older'));
+    readback.open();
+    await pause;
+    const r = await seek;
+    expect(r.ok ? '' : r.reason).toBe(REFUSAL_REASON.overtakenByNewerCommand);
+    expect(applied).toEqual(['newer']);
+  });
+});

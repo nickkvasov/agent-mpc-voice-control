@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { runAgentTurn, createClient, AGENT_MODEL, type ToolTransport } from '../../server/agent/loop.ts';
+import { VIEW_OF_TOOL } from '../../src/mcp/tool-availability.ts';
 
 /** A client that replays scripted responses; no network, no key. */
 function fakeClient(responses: Anthropic.Message[]): { client: Anthropic; calls: unknown[] } {
@@ -99,5 +100,23 @@ describe('agent turn', () => {
     };
     await runAgentTurn(client, t, 'play the first one');
     expect(called).toEqual(['playback.pause', 'catalog.resolveReference']);
+  });
+
+  it('tells the model which view provides which tools, so an absent tool can be named as a view to open (FR-035, T139)', async () => {
+    const { client, calls } = fakeClient([say('ok')]);
+    await runAgentTurn(client, transport({ ok: true, value: null }), 'play the third one');
+    const system = String((calls[0] as { system: unknown }).system);
+    for (const [prefix, view] of Object.entries(VIEW_OF_TOOL)) {
+      expect(system).toContain(`${view} (${prefix}*)`);
+    }
+  });
+
+  it('asks for precise calls and a short reply, since the page already shows the result (R9 lever 1, T140)', async () => {
+    const { client, calls } = fakeClient([say('ok')]);
+    await runAgentTurn(client, transport({ ok: true, value: null }), 'find talks about parsing');
+    const system = String((calls[0] as { system: unknown }).system);
+    expect(system).toMatch(/in parallel/);
+    expect(system).toMatch(/one or two short sentences/);
+    expect(system).toMatch(/do not list or summarise/i);
   });
 });

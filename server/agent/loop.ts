@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { buildToolNameMap } from './tool-names.ts';
+import { VIEW_OF_TOOL } from '../../src/mcp/tool-availability.ts';
 
 /**
  * The agent host.
@@ -66,8 +67,17 @@ export const SYSTEM_PROMPT = [
   'You drive a YouTube video application by calling the tools it declares.',
   'The application owns its state; you never hold a copy of it.',
   'Call a tool rather than describing what the person should click.',
+  // R9 lever 1 (T140). Live, a discovery turn took 14.4 s against SC-012's ten:
+  // 2.5 s to decide, 1.4 s to search, and 9.7 s writing a summary of 25 results
+  // the person could already see. The page is the answer; the reply confirms it.
+  'Make the fewest, most precise calls that do what was asked, and make independent calls in parallel in one step.',
+  'The person sees the page update as you act. When done, reply in one or two short sentences saying what you did or why you could not; do not list or summarise results, the queue or collections that are already on screen.',
   'A tool that returns ok:false has refused. Report the stated reason; never retry it as though it had not refused, and never substitute a different action for the one asked for.',
   'Tools exist only while the part of the interface that declares them is on screen. If the tool you need is absent, say so and name what the person would need to open.',
+  // Without this the model could not know which view an absent tool belongs to:
+  // live, with the results closed, it said only that it could not tell what
+  // "the third one" meant (T139). From the same map the page's refusals use.
+  `The parts of the interface and the tools each provides: ${Object.entries(VIEW_OF_TOOL).map(([prefix, view]) => `${view} (${prefix}*)`).join(', ')}.`,
 ].join(' ');
 
 export interface AgentTurnResult {

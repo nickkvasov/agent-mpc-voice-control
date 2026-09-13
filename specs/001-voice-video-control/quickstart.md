@@ -134,9 +134,10 @@ Spends assistant turns and, for row 2, one search.
 | Tool schemas | Vitest | Every tool rejects bad input; every failure path returns `ok:false` + reason |
 | Activity record | Vitest | One entry per invocation, refusals included; undo writes its own entry |
 | Gateway and turn stream | Vitest | Upgrade refused before handshake; frames validated; list cache invalidated on `list_changed`; SSE order with `done` last; cancellation reaches the page |
-| Browser, deterministic | Playwright + fake IFrame API | Scenarios 1–5 and 7, including the player events that never arrive |
-| Browser, live | `test:e2e:live` | Scenario 1 against the real embed; Scenario 7 against the real backend and key |
-| Timing | Playwright | SC-001 / SC-012 acknowledgement and result, measured from end-of-speech |
+| Browser, deterministic | Playwright + fake IFrame API | Scenarios 1–5, including the player events that never arrive |
+| Browser, conversational | Playwright + scripted model (`tests/e2e/assistant-*.spec.ts`) | US1–US4 through the assistant on the real page, gateway and turn endpoint. `test:e2e` starts the backend itself with no env file and empty keys, so the scripted model can start and nothing spends quota; tests about an absent assistant say so with the fixture option `assistant: 'absent'` |
+| Browser, live | `test:e2e:live` | Scenario 1 against the real embed (`player.live.spec.ts`); Scenario 7 rows 1–5 against the real backend and key (`assistant.live.spec.ts`) |
+| Timing, live | `test:e2e:live` (`timing.live.spec.ts`) | SC-001 / SC-012 acknowledgement and result, measured from end of typed input; results recorded in research.md R9 |
 
 A green suite does not discharge Scenario 5 or 6 — both are about what the system does when something
 is wrong, which is where mocked tests are least trustworthy. Record anything a green suite missed in

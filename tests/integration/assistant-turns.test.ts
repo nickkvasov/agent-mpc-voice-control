@@ -257,3 +257,26 @@ describe('assistant turns (T127)', () => {
     expect(detail).toMatch(/1 action/);
   });
 });
+
+describe('a turn arriving while its tab is still being listed (T139, Scenario 7 row 1)', () => {
+  it('waits for the listing rather than refusing a tab the page already shows as connected', async () => {
+    const model = scriptedModel({ 'go back a bit': [say('Nothing to do.')] });
+    const { origin, base } = await start(model.client);
+    const dialed = await dialPage(mintTicket(origin, SESSION, 'tab-slow').url, [seekTool([])], { listDelayMs: 400 });
+    if (!('page' in dialed)) throw new Error('refused');
+    // Initialized — the page's own status now says connected — but its tools are not listed yet.
+    expect(gateway?.connectionFor(SESSION, 'tab-slow')).toBeUndefined();
+    const res = await postTurn(base, { commandId: 'cmd-s', tabId: 'tab-slow', text: 'go back a bit' });
+    expect(res.status).toBe(200);
+    expect(parseSse(await res.text()).at(-1)?.event).toBe('done');
+    dialed.page.close();
+  });
+
+  it('still refuses at once a tab with no connection at all', async () => {
+    const { base } = await start(scriptedModel({}).client);
+    const started = Date.now();
+    const res = await postTurn(base, { commandId: 'cmd-n', tabId: 'tab-none', text: 'go back a bit' });
+    expect(res.status).toBe(409);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+});

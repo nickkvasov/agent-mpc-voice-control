@@ -119,6 +119,12 @@ Domain `catalog_curation`. All but `curation.getCollections` mutate the person's
 A tool declaring `confirmation: 'required'` does not run until the resolver returns approval.
 An unclear response resolves to **refusal** (FR-028) — the resolver has no "assume yes" path.
 
+A confirmation names videos as the person knows them — their label, else their title, else the id
+only when neither is known — and so does the activity record (FR-026, FR-029). A declined or dismissed
+confirmation is refused `needs_confirmation` with a detail quoting the question and the answer and
+stating that nothing changed, never as a question still waiting (Phase 13 Gate B: the live model read
+"…? Confirm to go ahead." as an invitation to confirm again).
+
 ---
 
 ## Transparency — `activity.*`

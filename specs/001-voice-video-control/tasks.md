@@ -297,7 +297,7 @@ failure would hide.
 ## Found after closeout — 2026-09-13, once real credentials existed
 
 Recorded rather than silently re-opened: each of these was reported complete, or
-reported as a smaller gap than it is.
+reported as a smaller gap than it is. **All resolved by 2026-09-14** (T142); each entry names where.
 
 - **T031 is not met.** The task names an IFrame player wrapper with
   `onError`/`onStateChange`/`onAutoplayBlocked` handlers. What exists is the
@@ -306,6 +306,8 @@ reported as a smaller gap than it is.
   stand-in with a fixed 600s duration, and a result's **Play** answers "Would play
   … once the player embed lands." Every playback Gate B so far drove that
   stand-in. The tools above it are real; nothing a person can watch is.
+  **Resolved** in Phase 10: the real IFrame embed (`src/player/youtube-adapter.ts`), proved live by
+  `tests/e2e-live/player.live.spec.ts`.
 - **There was no YouTube client, not merely an unverified one.** Both backend
   fetchers threw unconditionally, so a key alone would have changed nothing.
   Now `server/catalog-proxy/youtube.ts`: `search.list` followed by one
@@ -313,12 +315,15 @@ reported as a smaller gap than it is.
   three-valued, upstream `quotaExceeded` mapped to `quota_exhausted` and written
   back into the budget, and no error that can carry the key. Verified live: 25
   results, all with durations; the repeated query served from cache.
+  **Resolved** as described.
 - **The page turned every missing duration into 0** (`src/catalog/client.ts`),
   re-introducing the defect the `VideoReference` type had been fixed against.
   Fixtures always carried a duration, so no test could see it.
+  **Resolved**: a missing duration stays `unknown` end to end.
 - **Nothing started the backend.** `npm run dev` is Vite alone, while quickstart
   said "frontend + backend". Added `npm run server` (reads `dev.env` or `.env`).
   `gates.json`'s `live.start` still runs only `npm run dev`.
+  **Resolved** by T092: `npm run dev:all` starts both as one process group, and is `live.start`.
 - **SC-001 is out of reach through the agent.** Two live turns on
   `claude-opus-5` with adaptive thinking took 6.2s ("go back a bit": getState,
   then seek) and 4.5s (a captions refusal, reported correctly). SC-001 allows one
@@ -327,9 +332,13 @@ reported as a smaller gap than it is.
   measurements, not a benchmark — but the gap is sixfold. Needs a decision:
   the budget, the model or effort on that path, or narrowing SC-001 to matched
   commands.
+  **Resolved** by the 2026-09-13 clarification: SC-001 applies within one second on the recognised
+  path and *acknowledges* within one second on the assistant path. Measured live by T140: `pause`
+  applied in 55–57 ms; assistant acknowledgements 36–47 ms.
 - **The dev server served the credentials.** `GET /dev.env` on :5273 returned
   both keys; `vite.config.ts` now denies `*.env` and `*.env.*`, proved by
   `tests/e2e/credentials-not-served.spec.ts`.
+  **Resolved** as described.
 - **FR-038 and SC-001 collide on a slow search** (codex, reproduced at 5000 ms).
   Every command shares one `CommandChain`, so "pause" issued after a stalled
   search waits for it — now at most the 5s upstream deadline, previously
@@ -337,6 +346,8 @@ reported as a smaller gap than it is.
   neither beyond one second. Letting commands that touch disjoint state (playback
   vs catalog) pass each other would satisfy both in spirit and breaks FR-038's
   letter. Undecided — needs a ruling, not a patch.
+  **Resolved** by the 2026-09-13 clarification and T101: order is kept per domain, so a stalled
+  search no longer delays `pause` (`tests/integration/domain-independence.test.ts`).
 - **The page publishes no MCP tools at all.** Found while mapping the revision's
   tasks to files: `main.tsx` renders `App` without `AgentMcpProvider`, and nothing
   calls `useMcpTool`. T020 wrote the provider and never mounted it; T034–T039 and
@@ -344,9 +355,12 @@ reported as a smaller gap than it is.
   assistant connected today would list an empty page. Principle II's "declared by
   the component that owns the state" is therefore unmet everywhere, and FR-035's
   "not on screen" behaviour has never been exercised through MCP.
+  **Resolved** in Phase 9 (T105 and siblings; `tests/e2e/tool-surface.spec.ts`), and exercised through
+  the assistant in Phase 13 (`tests/e2e/assistant-discovery.spec.ts`) and live (T139).
 - **The gateway still has no task** (unchanged) — now T118–T125. The loop is verified live
   against the real API through an in-process transport; nothing carries a page's
   tools to it.
+  **Resolved** in Phase 11 (T118–T125); live Scenario 7 by T139.
 
 ---
 
@@ -482,10 +496,10 @@ them through the assistant, on the real page and the real gateway, with the scri
 
 **Purpose**: The runs that need the real key and network, and the evidence the constitution requires.
 
-- [ ] T139 Live Scenario 7 against the real backend, key and page — availability after listing, a find-and-narrow turn, the closed-view refusal, a cancelled turn, and a replayed ticket refused at the upgrade — in `tests/e2e-live/assistant.live.spec.ts`
-- [ ] T140 Live timing: acknowledgement and result for SC-001 and SC-012 measured from end of input; if SC-012 fails, pull R9's levers in order and record the measurements and what was pulled, in `tests/e2e-live/timing.live.spec.ts` and `specs/001-voice-video-control/research.md`
-- [ ] T141 Extend the break-it pass with named mutations for: the fence checked at entry instead of application, `commandId` not overwritten, the upgrade accepting before redemption, the allowance checked after model work, and a player tool not awaiting confirmation, in `scripts/break-it-pass.mjs`
-- [ ] T142 Reconcile the projections — contracts, data model, quickstart, and this file's "Found after closeout" entries marked resolved — and record in `.claude/kaliper/phased-implement/NOTES.md` every incident the green suite missed during these phases
+- [X] T139 Live Scenario 7 against the real backend, key and page — availability after listing, a find-and-narrow turn, the closed-view refusal, a cancelled turn, and a replayed ticket refused at the upgrade — in `tests/e2e-live/assistant.live.spec.ts`
+- [X] T140 Live timing: acknowledgement and result for SC-001 and SC-012 measured from end of input; if SC-012 fails, pull R9's levers in order and record the measurements and what was pulled, in `tests/e2e-live/timing.live.spec.ts` and `specs/001-voice-video-control/research.md`
+- [X] T141 Extend the break-it pass with named mutations for: the fence checked at entry instead of application, `commandId` not overwritten, the upgrade accepting before redemption, the allowance checked after model work, and a player tool not awaiting confirmation, in `scripts/break-it-pass.mjs`
+- [X] T142 Reconcile the projections — contracts, data model, quickstart, and this file's "Found after closeout" entries marked resolved — and record in `.claude/kaliper/phased-implement/NOTES.md` every incident the green suite missed during these phases
 
 ---
 

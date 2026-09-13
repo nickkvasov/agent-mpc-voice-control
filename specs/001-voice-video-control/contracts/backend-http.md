@@ -76,14 +76,18 @@ tools, not this body, carry everything the assistant may act on.
 | `tool_call` | `{ toolName, input }` | The application's own tool name, never the API alias |
 | `tool_result` | `{ toolName, ok, reason?, detail? }` | A refusal is data to the model, not an ended turn |
 | `message` | `{ text }` | What the assistant says to the person |
-| `refused` | `{ reason, detail }` | The turn could not run or continue |
-| `done` | `{ stopReason }` | `end_turn`, `iteration_limit` (named, never hidden), `cancelled` |
+| `refused` | `{ reason, detail }` | The turn could not run or continue. After a failure the detail says nothing was done **only** if no tool was called; otherwise it states how many actions were attempted, since a refused call can still have changed something |
+| `done` | `{ stopReason }` | `end_turn`, `iteration_limit` (named, never hidden — the page shows it as stopped, not done), `cancelled`, `failed` |
+
+A `tool_result` for a tool the page no longer declares — its view closed, possibly mid-turn — is
+`view_not_open`, naming the view to open (FR-035). The model is also told, in its instructions, which
+view provides which tools, so it can name what to open for a tool it cannot see at all.
 
 **Refusals before the stream opens** — a normal condition, never an exception path (FR-037):
 
 | Status | `reason` | When |
 |---|---|---|
-| 409 | `assistant_unavailable` | No page connection is bound to this session and tab |
+| 409 | `assistant_unavailable` | No page connection is bound to this session and tab. A tab whose socket is open but whose tools are still being listed is waited for, up to three seconds, first: the page already shows the assistant as available by then (T139) |
 | 429 | `assistant_allowance_spent` | Session or daily limit reached; body carries `limit: "session" \| "day"` and `resetsAt` |
 | 503 | `agent_unavailable` | No Anthropic credential configured |
 
