@@ -70,7 +70,8 @@ export function recordObservedCall(
     throw new Error(`Observed call ${String(event.callId)} (${event.name}) carries no ${INVOKE_STEP} gate; cannot tell whether a handler ran`);
   }
   if (invoke.outcome !== NOT_RUN) {
-    // The handler ran and recorded this call; retire its start.
+    // The handler ran and recorded this call; retire its start, whatever its
+    // signal now says — a late abort does not make it a call that never ran.
     starts.consume(event.name, event.arguments, false);
     return;
   }

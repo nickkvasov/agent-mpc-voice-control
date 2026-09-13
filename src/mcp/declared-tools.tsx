@@ -56,14 +56,13 @@ function DeclaredTool({ tool }: { tool: ToolName }) {
       handlerStarts.begin(tool, args, context.signal);
       const { commandId, input } = withoutCommandId(args);
       const resolved = surface.commands.resolveForCall(commandId ?? '');
-      if (!resolved.ok) {
-        // Described as what was asked, in the interface's words; the view adds
-        // "refused" and the detail names the command.
-        return invokeRecorded(recorder, tool, input, `${toolLabel(tool)} (for a command that is not open)`, () => resolved, null, commandId);
-      }
-      // The call's own signal: it aborts when the agent cancels or this view
-      // unmounts, and an action still waiting for its domain must then not apply.
-      const result = await surface.actions[tool](resolved.value, input, context.signal);
+      const result = resolved.ok
+        ? // The call's own signal: it aborts when the agent cancels or this view
+          // unmounts, and an action still waiting for its domain must then not apply.
+          await surface.actions[tool](resolved.value, input, context.signal)
+        : // Described as what was asked, in the interface's words; the view adds
+          // "refused" and the detail names the command.
+          await invokeRecorded(recorder, tool, input, `${toolLabel(tool)} (for a command that is not open)`, () => resolved, null, commandId);
       // The agent's next read must see what this call changed.
       await context.afterRender();
       return result;

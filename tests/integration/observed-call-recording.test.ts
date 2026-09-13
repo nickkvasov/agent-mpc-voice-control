@@ -121,4 +121,18 @@ describe('a cancellation is matched to the invocation it belongs to (Phase 9 Gat
     recordObservedCall(r, terminal(12, 'cancelled'), starts);
     expect(r.entries()).toHaveLength(1);
   });
+
+  it('a completed call aborted late still retires its start, so a later cancelled call is recorded (codex round 3)', () => {
+    const r = rec();
+    const starts = new HandlerStarts();
+    const a = new AbortController();
+    starts.begin('queue.add', args, a.signal);
+    // A's handler completed and recorded its entry.
+    a.abort(); // then a late cancellation: the runtime keeps invoke: passed
+    recordObservedCall(r, terminal(13, 'passed'), starts); // A's terminal retires A's start
+    recordObservedCall(r, terminal(14, 'cancelled'), starts); // B, identical, cancelled before its handler
+    expect(r.entries()).toHaveLength(1); // B is recorded, not swallowed by A's stale start
+  });
+
 });
+

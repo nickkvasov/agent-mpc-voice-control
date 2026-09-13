@@ -320,6 +320,24 @@ not open" could not happen. Hide/Show controls made it real; the registry count 
 - An assertion on a label checks the words the person sees, and that the internal id is absent.
 - "Implemented" means reachable from the running page. Grep for the caller before marking a task done.
 
+### 2026-09-13 — Phase 9 Gate C: three rounds on one inferred join
+
+Round 1 found six real defects in the new action layer (each reproduced by a test before its fix).
+Rounds 2 and 3 were both regressions in round 1's fixes — and both in the same place: matching a
+handler to its observed terminal. `agent-mcp-react` 0.3.0 never tells a handler which invocation it
+serves, so the join is inferred from tool, arguments and the invocation's signal. Round 2: arguments
+alone misattributed identical concurrent calls. Round 3: a completed call aborted late left its start
+unretired. Each fix closed its ordering; one ordering cannot be closed from the page and is documented
+in `src/activity/handler-starts.ts` as a known limit, with the real fix named: the library passing
+request `_meta` to handlers.
+
+**A rule no test can observe was removed, not kept.** A "prefer a running handler" preference stayed
+green under break-it: identical starts are interchangeable, so which one is consumed changes no entry
+count in any ordering.
+
+**Harness again.** A stray `cat >` with no heredoc blocked a break-it run on stdin for 400 seconds; it
+looked like a hanging test. Before trusting a stuck run, check what is actually running.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
