@@ -279,4 +279,24 @@ describe('a turn arriving while its tab is still being listed (T139, Scenario 7 
     expect(res.status).toBe(409);
     expect(Date.now() - started).toBeLessThan(500);
   });
+
+  it('[Gate C] a request cancelled while it waits for the listing spends no allowance and starts no model work', async () => {
+    const model = scriptedModel({ 'go back a bit': [say('Nothing to do.')] });
+    const allowance = new AssistantAllowance({ perSession: 10, perDay: 100 });
+    const { origin, base } = await start(model.client, allowance);
+    const dialed = await dialPage(mintTicket(origin, SESSION, 'tab-slow').url, [seekTool([])], { listDelayMs: 400 });
+    if (!('page' in dialed)) throw new Error('refused');
+    const before = allowance.snapshot(SESSION).sessionTurnsRemaining;
+    const abort = new AbortController();
+    const posted = postTurn(base, { commandId: 'cmd-x', tabId: 'tab-slow', text: 'go back a bit' }, { signal: abort.signal }).catch(() => null);
+    await new Promise((r) => setTimeout(r, 100));
+    abort.abort();
+    await posted;
+    // Past the listing, when the handler would otherwise carry on.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(gateway?.connectionFor(SESSION, 'tab-slow')).toBeDefined();
+    expect(allowance.snapshot(SESSION).sessionTurnsRemaining).toBe(before);
+    expect(model.requests).toHaveLength(0);
+    dialed.page.close();
+  });
 });

@@ -394,13 +394,13 @@ Lever (1) was pulled: the system prompt now asks for the fewest precise calls, i
 parallel in one step, and a reply of one or two short sentences that does not list or summarise what
 is already on screen. Lever (2) was already in place (Phase 11). Lever (3) was not needed.
 
-| Turn | Before lever 1 | After (run 1) | After (run 2) |
-|---|---|---|---|
-| SC-012 discovery — "find talks about regular expressions" | 14.4 s ✗ | 6.4 s | 6.4 s |
-| SC-012 queueing — "queue the first two of those results" | 7.4 s | 6.9 s | 7.4 s |
-| SC-001 assistant playback — "go back a bit" (acknowledged; no result budget) | 7.9 s | 6.4 s | 5.9 s |
+| Turn | Before lever 1 | After (run 1) | After (run 2) | After (run 3, applied checked) |
+|---|---|---|---|---|
+| SC-012 discovery — "find talks about regular expressions" | 14.4 s ✗ | 6.4 s | 6.4 s | 6.4 s |
+| SC-012 queueing — "queue the first two of those results" | 7.4 s | 6.9 s | 7.4 s | 6.9 s |
+| SC-001 assistant playback — "go back a bit" (acknowledged; no result budget) | 7.9 s | 6.4 s | 5.9 s | 5.4 s |
 
-Two runs is evidence, not a distribution: a request needing several searches, or a long answer the
+Run 3 also asserts each timed turn did what it was asked — a search that found results, two videos queued, a seek applied — since a refused action explained quickly would otherwise pass as a fast result (Phase 14 Gate C). Three runs is evidence, not a distribution: a request needing several searches, or a long answer the
 person asked for, can still exceed ten seconds, and is then shown as *late* rather than hidden. The
 timing test (`tests/e2e-live/timing.live.spec.ts`) runs with the live gate, so a regression here is
 seen at the next live run.

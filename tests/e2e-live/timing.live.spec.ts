@@ -24,6 +24,20 @@ async function submit(page: Page, text: string): Promise<number> {
   return t0;
 }
 
+/** The tool calls a turn showed, as "name ✓" or "name — refused: …". */
+const callsOf = (page: Page, text: string) => turn(page, text).locator('[data-testid="turn-tool-call"]').allInnerTexts();
+
+/**
+ * A timing counts only for a turn that did what was asked. A refused search the
+ * model explains quickly also ends "done", and would pass as a fast result
+ * (Phase 14 Gate C).
+ */
+async function expectApplied(page: Page, text: string, tool: string): Promise<void> {
+  const calls = await callsOf(page, text);
+  expect(calls.some((c) => c.startsWith(`${tool} ✓`)), `${text}: ${calls.join(' | ')}`).toBe(true);
+  expect(calls.filter((c) => c.includes('— refused')), `${text}: ${calls.join(' | ')}`).toEqual([]);
+}
+
 /** Acknowledgement and result times for an assistant turn, in ms from end of input. */
 async function timeTurn(page: Page, text: string): Promise<{ ack: number; result: number; state: string | null }> {
   const t0 = await submit(page, text);
@@ -63,6 +77,7 @@ test('SC-001: a recognised command applies within one second; an assistant playb
   const back = await timeTurn(page, 'go back a bit');
   measured.push(`SC-001 assistant "go back a bit": acknowledged ${String(back.ack)} ms, ${String(back.state)} at ${String(back.result)} ms (no result budget)`);
   expect(back.ack).toBeLessThan(1000);
+  await expectApplied(page, 'go back a bit', 'playback.seek');
 });
 
 test('SC-012: discovery and queueing through the assistant — acknowledged within one second, result within ten', async ({ page }) => {
@@ -78,6 +93,11 @@ test('SC-012: discovery and queueing through the assistant — acknowledged with
   expect(queue.ack).toBeLessThan(1000);
   expect(find.state).toBe('done');
   expect(queue.state).toBe('done');
+  // What the timings are timings OF: a search that found something, and two videos queued.
+  await expectApplied(page, 'find talks about regular expressions', 'catalog.search');
+  expect(await page.locator('[data-testid="result-item"]').count()).toBeGreaterThan(0);
+  await expectApplied(page, 'queue the first two of those results', 'queue.add');
+  await expect(page.locator('[data-testid="queue-item"]')).toHaveCount(2);
   expect(find.result).toBeLessThan(10_000);
   expect(queue.result).toBeLessThan(10_000);
 });

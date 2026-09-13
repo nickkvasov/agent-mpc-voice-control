@@ -44,6 +44,13 @@ export async function handleTurn(req: IncomingMessage, res: ServerResponse, body
   }
   const { commandId, tabId, text } = b as { commandId: string; tabId: string; text: string };
 
+  // Listening from the start: a request can close while it waits below for its
+  // tab, and a close missed then left the turn admitted, counted and running
+  // for nobody (Phase 14 Gate C).
+  const controller = new AbortController();
+  // The page aborting the request is the person cancelling (FR-004).
+  res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+
   const sessionId = sessionFromCookieHeader(req.headers.cookie);
   let page = sessionId === null ? undefined : deps.gateway.connectionFor(sessionId, tabId);
   // The page reports connected when its MCP handshake completes; the backend
@@ -53,6 +60,8 @@ export async function handleTurn(req: IncomingMessage, res: ServerResponse, body
   // a tab with no socket at all is refused at once.
   if (sessionId !== null && page === undefined && deps.gateway.isConnecting(sessionId, tabId)) {
     page = await deps.gateway.waitFor(sessionId, tabId, CONNECTING_WAIT_MS).catch(() => undefined);
+    // Gone while it waited: nothing to admit, count or run.
+    if (controller.signal.aborted) return;
   }
   if (sessionId === null || page === undefined) {
     json(res, 409, { reason: 'assistant_unavailable', detail: 'This tab is not connected to the assistant.' });
@@ -70,9 +79,6 @@ export async function handleTurn(req: IncomingMessage, res: ServerResponse, body
   }
 
   const turnId = randomUUID();
-  const controller = new AbortController();
-  // The page aborting the request is the person cancelling (FR-004).
-  res.on('close', () => { if (!res.writableEnded) controller.abort(); });
 
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
   const send = (event: string, data: Record<string, unknown>): void => {
