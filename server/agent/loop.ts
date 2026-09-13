@@ -20,7 +20,20 @@ export const AGENT_MODEL = 'claude-opus-5';
 export interface ToolTransport {
   /** Tools the page declares RIGHT NOW. They exist only while their UI is on screen. */
   listTools(): Promise<readonly ToolDescriptor[]>;
-  callTool(name: string, input: unknown): Promise<ToolCallOutcome>;
+  /** The signal aborts the call on the page too: MCP cancellation reaches its handler. */
+  callTool(name: string, input: unknown, signal?: AbortSignal): Promise<ToolCallOutcome>;
+}
+
+/** What a turn reports as it happens (contracts/backend-http.md, R9). */
+export type TurnEvent =
+  | { readonly type: 'tool_call'; readonly toolName: string; readonly input: unknown }
+  | { readonly type: 'tool_result'; readonly toolName: string; readonly outcome: ToolCallOutcome }
+  | { readonly type: 'message'; readonly text: string };
+
+export interface TurnOptions {
+  /** Cancels the turn: the model stream and any tool call in flight (FR-004). */
+  readonly signal?: AbortSignal;
+  readonly onEvent?: (event: TurnEvent) => void;
 }
 
 export interface ToolDescriptor {
@@ -77,6 +90,24 @@ export async function runAgentTurn(
   client: Anthropic,
   transport: ToolTransport,
   commandText: string,
+  options: TurnOptions = {},
+): Promise<AgentTurnResult> {
+  const { signal, onEvent } = options;
+  try {
+    return await runTurn(client, transport, commandText, signal, onEvent);
+  } catch (cause) {
+    // A cancelled turn is an outcome, named — not an error thrown past the caller.
+    if (signal?.aborted === true) return { text: '', toolCalls: [], stopReason: 'cancelled' };
+    throw cause;
+  }
+}
+
+async function runTurn(
+  client: Anthropic,
+  transport: ToolTransport,
+  commandText: string,
+  signal: AbortSignal | undefined,
+  onEvent: TurnOptions['onEvent'],
 ): Promise<AgentTurnResult> {
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: commandText }];
   const toolCalls: { name: string; outcome: ToolCallOutcome }[] = [];
@@ -111,6 +142,7 @@ export async function runAgentTurn(
     const tools = toolsVanished ? lastTools : fresh;
     if (fresh.length > 0) lastTools = fresh;
 
+    if (signal?.aborted === true) return { text, toolCalls, stopReason: 'cancelled' };
     const stream = client.messages.stream({
       model: AGENT_MODEL,
       max_tokens: 8192,
@@ -121,7 +153,7 @@ export async function runAgentTurn(
       tools,
       ...(toolsVanished ? { tool_choice: { type: 'none' as const } } : {}),
       messages,
-    });
+    }, signal === undefined ? undefined : { signal });
     const response = await stream.finalMessage();
 
     text = response.content
@@ -129,6 +161,7 @@ export async function runAgentTurn(
       .map((b) => b.text)
       .join('');
 
+    if (text !== '') onEvent?.({ type: 'message', text });
     const uses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (uses.length === 0) return { text, toolCalls, stopReason: response.stop_reason };
 
@@ -140,8 +173,10 @@ export async function runAgentTurn(
     for (const use of uses) {
       // Back to the application's own name before it reaches the page.
       const appName = names.fromApi.get(use.name) ?? use.name;
-      const outcome = await transport.callTool(appName, use.input);
+      onEvent?.({ type: 'tool_call', toolName: appName, input: use.input });
+      const outcome = await transport.callTool(appName, use.input, signal);
       toolCalls.push({ name: appName, outcome });
+      onEvent?.({ type: 'tool_result', toolName: appName, outcome });
       results.push({
         type: 'tool_result',
         tool_use_id: use.id,

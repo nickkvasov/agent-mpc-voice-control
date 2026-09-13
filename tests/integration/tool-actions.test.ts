@@ -136,6 +136,19 @@ describe('tool actions: one path, recorded once, ordered per domain', () => {
     expect(getQueue().items[0]?.entryId).not.toBe(first);
   });
 
+  it('queue.remove takes videoIds or entryIds — both or neither is refused with the reason, and nothing changes', async () => {
+    const { commands, actions, getQueue, setQueue, recorder } = setup();
+    const one = queueAdd(EMPTY_QUEUE, ['M7lc1UVf-VE']);
+    if (!one.ok) throw new Error('setup');
+    setQueue(one.value);
+    for (const input of [{}, { videoIds: ['M7lc1UVf-VE'], entryIds: [one.value.items[0]?.entryId ?? ''] }]) {
+      const r = await actions[TOOL.queueRemove](commands.issue('agent'), input);
+      expect(r.ok ? '' : r.reason).toBe(REFUSAL_REASON.argumentsInvalid);
+    }
+    expect(getQueue().items).toHaveLength(1);
+    expect(recorder.entries().at(-1)).toMatchObject({ result: 'failed' });
+  });
+
   it('removing from a collection asks first, naming it, and an unclear answer refuses', async () => {
     const V = 'M7lc1UVf-VE';
     const { commands, actions, asked, recorder } = setup(['maybe?']);
@@ -338,3 +351,29 @@ describe('Phase 10 Gate C round 3: a refused load still changed the player, and 
   });
 });
 
+
+describe('Phase 12 Gate B: a turn cancelled while its search is on the network', () => {
+  it('does not apply the results when they arrive, and says it was cancelled', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const found = makeVideoReference({ videoId: 'M7lc1UVf-VE', title: 'arrived late', channelTitle: 'c', publishedAt: 0 });
+    const { commands, actions, recorder } = setup([], {
+      search: async () => {
+        await held;
+        return ok({ items: [found], criteriaApplied: { query: 'x' }, fromCache: false, quota: { searchCallsRemaining: null, resetsAt: null } });
+      },
+    });
+    const command = commands.issue('agent');
+    const controller = new AbortController();
+    const searching = actions[TOOL.catalogSearch](command, { query: 'x' }, controller.signal);
+    await new Promise((r) => setTimeout(r, 10)); // the search is on the network, inside its domain
+    commands.revoke(command.commandId, () => controller.abort());
+    release();
+    const r = await searching;
+    const results = (await actions[TOOL.catalogGetCurrentResults](commands.issue('manual'), {}));
+    const applied = results.ok && (results.value as { results: unknown[] }).results.length > 0;
+    expect(r.ok ? '' : r.reason).toBe(REFUSAL_REASON.commandCancelled);
+    expect(applied).toBe(false);
+    expect(recorder.entries().find((e) => e.toolName === TOOL.catalogSearch)).toMatchObject({ result: 'failed', refusalReason: REFUSAL_REASON.commandCancelled });
+  });
+});

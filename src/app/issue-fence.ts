@@ -22,6 +22,12 @@ import type { CommandDomain } from '../vocab/command-domains.ts';
 export interface FenceHandle {
   /** Call once state has changed, so a partial effect still counts as applied. */
   markApplied(): void;
+  /**
+   * True once the call's command was revoked or its signal aborted. The check at
+   * lane entry is not enough for an action that WAITS inside its lane — a search
+   * on the network — so it asks again before it commits (Phase 12 Gate B).
+   */
+  cancelled(): boolean;
 }
 
 interface LastApplied {
@@ -74,7 +80,10 @@ export class DomainScheduler {
           );
         }
         let applied = false;
-        const result = await action({ markApplied: () => { applied = true; } });
+        const result = await action({
+          markApplied: () => { applied = true; },
+          cancelled: () => signal?.aborted === true || this.#commands.get(command.commandId)?.state === 'revoked',
+        });
         if (result.ok || applied) this.#raise(lanes, command);
         return result;
       } finally {

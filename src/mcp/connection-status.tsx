@@ -1,3 +1,5 @@
+import type { McpConnectionState } from 'agent-mcp-react';
+import type { TurnRefusal } from '../assistant/turn-client.ts';
 /**
  * FR-037 / SC-010: with the assistant unavailable, every task remains
  * completable by hand, and its unavailability is SHOWN.
@@ -7,6 +9,35 @@
  * assistant is gone" will wait for something that is never coming.
  */
 export type ConnectionState = 'connecting' | 'connected' | 'unavailable';
+
+/**
+ * What the page says about the assistant, from what is actually true (T134).
+ *
+ * Connected only when the library's connection is; a spent allowance (FR-046)
+ * makes it unavailable until its reset time even while connected, naming the
+ * limit and when it clears. Every unavailable state carries a reason.
+ */
+export function deriveConnection(
+  connection: McpConnectionState,
+  allowance: TurnRefusal | null,
+  now: number,
+): { readonly state: ConnectionState; readonly reason: string | null } {
+  if (allowance !== null && allowance.reason === 'assistant_allowance_spent' && (allowance.resetsAt ?? 0) > now) {
+    const at = new Date(allowance.resetsAt ?? now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return { state: 'unavailable', reason: `${allowance.detail} It is available again at ${at}.` };
+  }
+  switch (connection.status) {
+    case 'connected':
+      return { state: 'connected', reason: null };
+    case 'connecting':
+    case 'reconnecting':
+      return { state: 'connecting', reason: null };
+    case 'error':
+      return { state: 'unavailable', reason: connection.error.message };
+    case 'disconnected':
+      return { state: 'unavailable', reason: 'The page is not connected to the assistant.' };
+  }
+}
 
 export interface ConnectionStatusProps {
   readonly state: ConnectionState;

@@ -106,14 +106,21 @@ export function attachGateway(http: HttpServer, options: { readonly initializeTi
             return;
           }
           const connection = pageConnection(sessionId, tabId, client);
-          connections.set(key, connection);
-          // Operator evidence (IMMUNE-E): which session connected, and what the page offers.
+          // Published only once its tools are LISTED, not merely initialized: a
+          // connection a turn cannot yet see tools on is not ready (contract, T134).
           void connection.listTools().then(
-            (tools) => process.stdout.write(`[gateway] page connected (${label}): ${String(tools.length)} tools\n`),
-            (cause: unknown) => process.stderr.write(`[gateway] page connected but listing its tools failed: ${String(cause)}\n`),
+            (tools) => {
+              if (sockets.get(key) !== ws) return;
+              connections.set(key, connection);
+              process.stdout.write(`[gateway] page connected (${label}): ${String(tools.length)} tools\n`);
+              for (const resolve of waiters.get(key) ?? []) resolve(connection);
+              waiters.delete(key);
+            },
+            (cause: unknown) => {
+              process.stderr.write(`[gateway] page connected but listing its tools failed, closing it: ${String(cause)}\n`);
+              ws.close();
+            },
           );
-          for (const resolve of waiters.get(key) ?? []) resolve(connection);
-          waiters.delete(key);
         })
         .catch((cause: unknown) => {
           // A socket that never completes initialize is not a connection.

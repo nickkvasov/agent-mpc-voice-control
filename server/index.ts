@@ -4,6 +4,9 @@ import { SearchBudget } from './catalog-proxy/budget.ts';
 import { youTubeDurationFiller, youTubeSearchFetcher, youTubeVideoDetailsFetcher } from './catalog-proxy/youtube.ts';
 import { handle, requestUrl, writeReply, type RouteDeps } from './routes.ts';
 import { attachGateway } from './gateway/upgrade.ts';
+import { handleTurn, TURNS_PATH } from './assistant/turns.ts';
+import { AssistantAllowance } from './assistant/allowance.ts';
+import { modelFromEnvironment } from './agent/scripted-client.ts';
 
 /**
  * Backend scaffold. It exists for the three things the browser must not hold:
@@ -14,6 +17,13 @@ import { attachGateway } from './gateway/upgrade.ts';
  * IMMUNE-U forbids.
  */
 const PORT = Number(process.env['PORT'] ?? 8787);
+
+/**
+ * Chosen once at startup. Throws — stopping the backend with the reason — when a
+ * scripted model is configured beside a real key, or a script cannot be read.
+ */
+const model = modelFromEnvironment(process.env);
+const allowance = new AssistantAllowance(AssistantAllowance.limitsFrom(process.env));
 
 function nonBlank(value: string | undefined): string | undefined {
   return value === undefined || value.trim() === '' ? undefined : value.trim();
@@ -38,7 +48,9 @@ export function createDeps(): RouteDeps {
       ? new CatalogSearch(unconfigured, budget)
       : new CatalogSearch(youTubeSearchFetcher(youtubeKey), budget, youTubeDurationFiller(youtubeKey)),
     fetchVideoDetails: youtubeKey === '' ? unconfigured : youTubeVideoDetailsFetcher(youtubeKey),
-    agentAvailable: () => (process.env['ANTHROPIC_API_KEY'] ?? '').trim() !== '',
+    // Available when there is a model to run: a real credential, or an explicitly
+    // scripted one for deterministic runs (which refuses to start beside a key).
+    agentAvailable: () => model !== null,
   };
 }
 
@@ -77,6 +89,10 @@ export const server = createServer((req, res) => {
       return;
     }
     const body = req.method === 'POST' ? await readJsonBody(req) : undefined;
+    if (req.method === 'POST' && req.url === TURNS_PATH) {
+      await handleTurn(req, res, body, { gateway, allowance, model: () => model });
+      return;
+    }
     const reply = await handle(req.method ?? 'GET', requestUrl(req), deps, { cookie: req.headers.cookie, body });
     await writeReply(
       res,
@@ -116,7 +132,7 @@ if (process.argv[1]?.endsWith('index.ts') === true || process.argv[1]?.endsWith(
     // Which credentials are present, never their values.
     const has = (name: string): string => ((process.env[name] ?? '').trim() === '' ? 'missing' : 'set');
     process.stdout.write(
-      `backend listening on http://localhost:${String(PORT)} (YOUTUBE_API_KEY ${has('YOUTUBE_API_KEY')}, ANTHROPIC_API_KEY ${has('ANTHROPIC_API_KEY')})\n`,
+      `backend listening on http://localhost:${String(PORT)} (YOUTUBE_API_KEY ${has('YOUTUBE_API_KEY')}, ANTHROPIC_API_KEY ${has('ANTHROPIC_API_KEY')}, model ${(process.env['AMR_SCRIPTED_MODEL'] ?? '').trim() !== '' ? 'SCRIPTED' : model === null ? 'none' : 'live'})\n`,
     );
   });
 }

@@ -82,14 +82,13 @@ describe('the reserved commandId field (research R7)', () => {
     }
   });
 
-  it('queue.remove takes videoIds or entryIds, never both and never neither', () => {
-    const ajv = new Ajv({ strict: false });
-    const wire = ajv.compile(wireSchema(TOOL.queueRemove));
-    const id = { [COMMAND_ID_FIELD]: 'cmd-1' };
-    expect(wire({ ...id, videoIds: ['M7lc1UVf-VE'] })).toBe(true);
-    expect(wire({ ...id, entryIds: ['q1'] })).toBe(true);
-    expect(wire({ ...id, videoIds: ['M7lc1UVf-VE'], entryIds: ['q1'] })).toBe(false);
-    expect(wire({ ...id })).toBe(false);
+  it.each(ALL)('%s: the model-facing schema is one the Claude API accepts', (tool) => {
+    // Phase 12 Gate B: queue.remove used a top-level oneOf, the real API refused
+    // the whole tools list, and EVERY assistant turn failed. The API rejects
+    // oneOf / allOf / anyOf at the top of input_schema and requires type object.
+    const model = modelSchema(wireSchema(tool)) as Record<string, unknown>;
+    expect(model['type']).toBe('object');
+    for (const combinator of ['oneOf', 'allOf', 'anyOf']) expect(model).not.toHaveProperty(combinator);
   });
 
   it('withoutCommandId hands a handler only business input', () => {

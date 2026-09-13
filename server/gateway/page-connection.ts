@@ -19,6 +19,8 @@ export interface PageConnection extends ToolTransport {
 }
 
 const LIST_CHANGED = 'notifications/tools/list_changed';
+/** Long enough for a person to read and answer a confirmation dialog. */
+export const TOOL_CALL_TIMEOUT_MS = 5 * 60_000;
 
 export function pageConnection(sessionId: string, tabId: string, client: Client): PageConnection {
   let cached: Promise<readonly ToolDescriptor[]> | null = null;
@@ -47,10 +49,15 @@ export function pageConnection(sessionId: string, tabId: string, client: Client)
       }
       return cached;
     },
-    async callTool(name, input): Promise<ToolCallOutcome> {
+    async callTool(name, input, signal): Promise<ToolCallOutcome> {
       let result: Awaited<ReturnType<Client['callTool']>>;
       try {
-        result = await client.callTool({ name, arguments: input as Record<string, unknown> });
+        result = await client.callTool(
+          { name, arguments: input as Record<string, unknown> },
+          // Explicit, not the SDK default: a tool may be waiting for a person to
+          // answer a confirmation, which can outlast a request-sized timeout.
+          { timeout: TOOL_CALL_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
+        );
       } catch (cause) {
         // A protocol failure — no such tool, a closed channel — is information
         // the model can act on, not a thrown error that ends the turn.

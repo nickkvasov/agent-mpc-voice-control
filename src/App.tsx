@@ -10,7 +10,10 @@ import { ResultsView } from './catalog/results-view.tsx';
 import { RecordView } from './activity/record-view.tsx';
 import { CurationView } from './curation/curation-view.tsx';
 import { PrivacyDisclosure } from './app/privacy-disclosure.tsx';
-import { ConnectionStatus, type ConnectionState } from './mcp/connection-status.tsx';
+import { ConnectionStatus, deriveConnection, type ConnectionState } from './mcp/connection-status.tsx';
+import { useMcpConnection, useMcpTabId } from 'agent-mcp-react';
+import { startTurn, type TurnRefusal, type TurnView as TurnViewState } from './assistant/turn-client.ts';
+import { TurnView } from './assistant/turn-view.tsx';
 import { HistoryControls } from './app/history-controls.tsx';
 import { EMPTY_COLLECTIONS, type Collection, type CollectionsState } from './curation/collections.ts';
 import { applyCollectionUndo } from './curation/restore.ts';
@@ -34,6 +37,14 @@ import { DomainScheduler } from './app/issue-fence.ts';
 import { createToolActions, type ToolActions } from './app/tool-actions.ts';
 import { ToolSurfaceProvider } from './mcp/declared-tools.tsx';
 
+
+/** What the command outcome line says while a turn is not yet finished. */
+const TURN_OUTCOME = {
+  acknowledged: 'Asking the assistant…',
+  running: 'The assistant is working…',
+  late: 'Still working — this is taking longer than usual.',
+  cancelled: 'Cancelled.',
+} as const;
 
 /**
  * "Done." — plus anything the person must be told about how it was done. FR-036:
@@ -152,8 +163,17 @@ export function App() {
   const [showCollections, setShowCollections] = useState(true);
   const [showQueue, setShowQueue] = useState(true);
 
-  const [connection] = useState<ConnectionState>('unavailable');
-  const connectionReason = 'No agent gateway is configured for this deployment yet.';
+  /** From the real connection (T134); a spent allowance overrides it until it resets. */
+  const mcpConnection = useMcpConnection();
+  const [allowanceRefusal, setAllowanceRefusal] = useState<TurnRefusal | null>(null);
+  const derived = deriveConnection(mcpConnection, allowanceRefusal, Date.now());
+  const connection: ConnectionState = derived.state;
+  const connectionReason = derived.reason;
+  const tabId = useMcpTabId();
+
+  /** Assistant turns, most recent first; cancellers by command. */
+  const [turns, setTurns] = useState<readonly TurnViewState[]>([]);
+  const cancelTurn = useRef(new Map<string, () => void>());
 
   const [commandCount, setCommandCount] = useState(0);
   /** Whether voice is actually usable — the disclosure must not contradict it. */
@@ -219,6 +239,12 @@ export function App() {
 
   // The record view follows the record, whoever writes to it.
   useEffect(() => recorder.subscribe(refreshActivity), [refreshActivity]);
+
+  // The intake callback outlives renders; these let it read the current state.
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
+  const connectionReasonRef = useRef(connectionReason);
+  connectionReasonRef.current = connectionReason;
 
   /**
    * Latest-value refs the actions read, so an action issued earlier never acts
@@ -363,7 +389,7 @@ export function App() {
                 commandId: command.commandId,
                 modality,
                 rawText: text,
-                interpretation: m.matched ? m.match.interpretation : 'not understood',
+                interpretation: m.matched ? m.match.interpretation : 'asked the assistant',
                 route: m.matched ? 'local_matcher' : 'agent',
                 receivedAt: command.issuedAt,
                 outcome,
@@ -375,13 +401,32 @@ export function App() {
               });
           };
           if (!m.matched) {
-            // The matcher never guesses. With no agent connected there is nowhere
-            // to fall through to, so this is refused with a reason (FR-034/FR-037).
-            setInterpretation(null);
-            setOutcome(
-              'Not a playback command, and the assistant is not connected, so nothing was done. Everything here still works by hand.',
+            // FR-003: "not understood" was shown for commands the assistant then
+            // carried out (Gate B). Say what actually happens to it.
+            setInterpretation(connectionRef.current === 'connected' ? 'Asked the assistant' : null);
+            if (connectionRef.current !== 'connected') {
+              // The matcher never guesses, and there is no assistant to ask: refused
+              // with the reason it is unavailable (FR-034, FR-037).
+              setOutcome(`Not a playback command, and the assistant is not available (${connectionReasonRef.current ?? 'not connected'}), so nothing was done. Everything here still works by hand.`);
+              persist('refused', 'no_match');
+              return;
+            }
+            // The matcher falls through to the assistant. The acknowledgement is
+            // shown by the turn client before any network call (SC-001, SC-012).
+            const registry = commands.current as CommandRegistry;
+            const turn = startTurn(
+              { commandId: command.commandId, tabId, text },
+              (view) => {
+                setTurns((cur) => [view, ...cur.filter((t) => t.commandId !== view.commandId)].slice(0, 5));
+                setOutcome(view.state === 'refused' ? `Refused: ${view.refusal?.detail ?? 'no reason given'}` : view.state === 'done' ? (view.messages.at(-1) ?? 'Done.') : TURN_OUTCOME[view.state]);
+                if (view.refusal?.reason === 'assistant_allowance_spent') setAllowanceRefusal(view.refusal);
+              },
+              { revoke: () => registry.revoke(command.commandId) },
             );
-            persist('refused', 'no_match');
+            cancelTurn.current.set(command.commandId, () => turn.cancel());
+            const final = await turn.done;
+            cancelTurn.current.delete(command.commandId);
+            persist(final.state === 'done' ? 'applied' : 'refused', final.state === 'done' ? null : (final.refusal?.reason ?? final.state));
             return;
           }
           setInterpretation(m.match.interpretation);
@@ -425,6 +470,7 @@ export function App() {
       />
       <CommandInput onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.text)} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
+      <TurnView turns={turns} onCancel={(commandId) => cancelTurn.current.get(commandId)?.()} />
       <section data-testid="discovery" style={{ margin: '0.5rem 0' }}>
         <form
           data-testid="search-form"

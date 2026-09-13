@@ -12,7 +12,8 @@ export interface FakeTool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
-  readonly handler: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  /** Receives the call's own signal, which aborts when the caller cancels the MCP request. */
+  readonly handler: (args: Record<string, unknown>, signal: AbortSignal | undefined) => unknown | Promise<unknown>;
 }
 
 export interface FakePage {
@@ -40,12 +41,13 @@ export function dialPage(url: string, tools: readonly FakeTool[]): Promise<{ ref
       server.setRequestHandler('tools/list', async () => ({
         tools: current.map(({ name, description, inputSchema }) => ({ name, description, inputSchema: { type: 'object' as const, ...inputSchema } })),
       }));
-      server.setRequestHandler('tools/call', async (request) => {
+      server.setRequestHandler('tools/call', async (request, ctx) => {
         const { name, arguments: args = {} } = request.params as { name: string; arguments?: Record<string, unknown> };
         calls.push({ name, args });
         const tool = current.find((t) => t.name === name);
         if (tool === undefined) return { isError: true, content: [{ type: 'text', text: `no tool ${name}` }] };
-        return { content: [{ type: 'text', text: JSON.stringify(await tool.handler(args)) }] };
+        const signal = (ctx as { mcpReq?: { signal?: AbortSignal } } | undefined)?.mcpReq?.signal;
+        return { content: [{ type: 'text', text: JSON.stringify(await tool.handler(args, signal)) }] };
       });
       const transport: Transport = {
         async start() {

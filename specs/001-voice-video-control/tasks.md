@@ -448,18 +448,18 @@ in-process transport.
 
 ### Tests for Phase 12
 
-- [ ] T126 [P] Integration test of the allowance: per-session and per-day limits checked before any model work; concurrent turn starts cannot overspend; rollover at the same Pacific midnight as the search budget; a cancelled admitted turn still counts, in `tests/integration/assistant-allowance.test.ts`
-- [ ] T127 [P] Integration test of the turn endpoint: SSE events in order with `done` always last; 409 `assistant_unavailable`, 429 `assistant_allowance_spent` (with `limit` and `resetsAt`) and 503 before the stream opens; `commandId` written over any model-supplied value and absent from the model's schema; two concurrent turns attributed exactly; aborting the request aborts the model stream and sends MCP cancellation; an assistant call refused before its handler (bad arguments) appears in the activity record WITH its arguments and `commandId` — the provider's value payloads, unverifiable before a gateway exists (Phase 9 Gate C round 6), in `tests/integration/assistant-turns.test.ts`
-- [ ] T128 [P] Integration test of the page's turn client: the acknowledgement renders before any network call; a turn without `done` at ten seconds becomes `late` and stays cancellable; cancelling revokes the command before aborting the request, in `tests/integration/turn-client.test.ts`
+- [X] T126 [P] Integration test of the allowance: per-session and per-day limits checked before any model work; concurrent turn starts cannot overspend; rollover at the same Pacific midnight as the search budget; a cancelled admitted turn still counts, in `tests/integration/assistant-allowance.test.ts`
+- [X] T127 [P] Integration test of the turn endpoint: SSE events in order with `done` always last; 409 `assistant_unavailable`, 429 `assistant_allowance_spent` (with `limit` and `resetsAt`) and 503 before the stream opens; `commandId` written over any model-supplied value and absent from the model's schema; two concurrent turns attributed exactly; aborting the request aborts the model stream and sends MCP cancellation, in `tests/integration/assistant-turns.test.ts`. Moved to T137, which runs the real page: an assistant call refused before its handler appears in the activity record WITH its arguments and `commandId` — the provider's value payloads need `agent-mcp-react` itself, which the Node stand-in page is not
+- [X] T128 [P] Integration test of the page's turn client: the acknowledgement renders before any network call; a turn without `done` at ten seconds becomes `late` and stays cancellable; cancelling revokes the command before aborting the request, in `tests/integration/turn-client.test.ts`
 
 ### Implementation for Phase 12
 
-- [ ] T129 Extract the Pacific-midnight calculation into one owner used by both budgets, and implement `AssistantAllowance`, in `server/time/pacific-day.ts`, `server/catalog-proxy/budget.ts` and `server/assistant/allowance.ts`
-- [ ] T130 Implement `POST /api/assistant/turns`: session and tab → connection, allowance admission, the SSE stream, `commandId` injection on every forwarded call, cancellation, in `server/assistant/turns.ts`, routed from `server/routes.ts`
-- [ ] T131 Add a scripted model client for deterministic e2e runs, enabled only by an explicit environment variable and **refusing to start when `ANTHROPIC_API_KEY` is also set**, so a scripted run cannot pass itself off as a live one, in `server/agent/scripted-client.ts`
-- [ ] T132 Implement the page's turn client: matcher fall-through → local acknowledgement → SSE reader → `late` at ten seconds → cancel, in `src/assistant/turn-client.ts`
-- [ ] T133 Show turns — acknowledged, running, late, done, refused, cancelled — with their tool calls and the allowance and reset time, replacing "the assistant is not connected", in `src/assistant/turn-view.tsx` and `src/App.tsx`
-- [ ] T134 Report the assistant available only once the socket is admitted **and** the backend has listed the page's tools, and unavailable with the reason when the allowance is spent (FR-037, FR-046), in `src/mcp/connection-status.tsx`
+- [X] T129 Extract the Pacific-midnight calculation into one owner used by both budgets, and implement `AssistantAllowance`, in `server/time/pacific-day.ts`, `server/catalog-proxy/budget.ts` and `server/assistant/allowance.ts`
+- [X] T130 Implement `POST /api/assistant/turns`: session and tab → connection, allowance admission, the SSE stream, `commandId` injection on every forwarded call, cancellation, in `server/assistant/turns.ts`, routed from `server/routes.ts`
+- [X] T131 Add a scripted model client for deterministic e2e runs, enabled only by an explicit environment variable and **refusing to start when `ANTHROPIC_API_KEY` is also set**, so a scripted run cannot pass itself off as a live one, in `server/agent/scripted-client.ts`
+- [X] T132 Implement the page's turn client: matcher fall-through → local acknowledgement → SSE reader → `late` at ten seconds → cancel, in `src/assistant/turn-client.ts`
+- [X] T133 Show turns — acknowledged, running, late, done, refused, cancelled — with their tool calls and the allowance and reset time, replacing "the assistant is not connected", in `src/assistant/turn-view.tsx` and `src/App.tsx`
+- [X] T134 Report the assistant available only once the socket is admitted **and** the backend has listed the page's tools, and unavailable with the reason when the allowance is spent (FR-037, FR-046), in `src/mcp/connection-status.tsx`
 
 **Checkpoint**: a typed command the matcher cannot handle reaches the assistant and acts on the page;
 the whole path runs deterministically with the scripted client and live with the key.
@@ -473,7 +473,7 @@ them through the assistant, on the real page and the real gateway, with the scri
 
 - [ ] T135 [P] [US1] Playwright: "go back a bit" acknowledged within one second and applied when the assistant acts; pause pressed before the assistant acts applies and the seek is refused `overtaken_by_newer_command` (FR-038, SC-001), in `tests/e2e/assistant-playback.spec.ts`
 - [ ] T136 [P] [US2] Playwright: find, then "only the short ones" spending no quota, then "play the third one"; with the results view closed, the assistant is told the view is not open rather than acting on a stale listing (FR-016, FR-035, SC-012), in `tests/e2e/assistant-discovery.spec.ts`
-- [ ] T137 [P] [US3] Playwright: every assistant tool call appears once in the activity record under its command; an assistant entry can be undone; "what did you just do?" matches the record (FR-029, FR-030, FR-033), in `tests/e2e/assistant-activity.spec.ts`
+- [ ] T137 [P] [US3] Playwright: every assistant tool call appears once in the activity record under its command; an assistant entry can be undone; "what did you just do?" matches the record; an assistant call refused before its handler (bad arguments) is recorded WITH its arguments and `commandId` (FR-029, FR-030, FR-033), in `tests/e2e/assistant-activity.spec.ts`
 - [ ] T138 [P] [US4] Playwright: an assistant removal names its target and waits; "maybe" refuses; a bulk change over five states the count (FR-026, FR-027, FR-028), in `tests/e2e/assistant-curation.spec.ts`
 
 ---

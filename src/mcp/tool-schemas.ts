@@ -16,7 +16,6 @@ export type ObjectSchema = {
   readonly properties: Readonly<Record<string, unknown>>;
   readonly required: readonly string[];
   readonly additionalProperties: false;
-  readonly oneOf?: readonly { readonly required: readonly string[] }[];
 };
 
 const obj = (properties: Record<string, unknown> = {}, required: readonly string[] = []): ObjectSchema => ({
@@ -64,12 +63,10 @@ export const BUSINESS_SCHEMAS: Readonly<Record<ToolName, ObjectSchema>> = {
   [TOOL.queueAdd]: obj({ videoIds, position: { enum: ['next', 'end'] } }, ['videoIds']),
   // By video removes every occurrence; by entry removes exactly one — the queue
   // may hold a video twice, and the queue view's Remove button means that one.
-  // `oneOf` over `required`, not min/maxProperties: property counts would also
-  // count the reserved commandId the wire schema adds, and refuse every call.
-  [TOOL.queueRemove]: {
-    ...obj({ videoIds, entryIds: { type: 'array', items: nonEmpty, minItems: 1, uniqueItems: true } }),
-    oneOf: [{ required: ['videoIds'] }, { required: ['entryIds'] }],
-  },
+  // "Exactly one of videoIds or entryIds" is enforced by the action, not here:
+  // property counts would count the reserved commandId, and a top-level oneOf is
+  // refused by the Claude API — which failed every assistant turn (Phase 12 Gate B).
+  [TOOL.queueRemove]: obj({ videoIds, entryIds: { type: 'array', items: nonEmpty, minItems: 1, uniqueItems: true } }),
   [TOOL.queueReorder]: obj({ videoId, toIndex: { type: 'integer', minimum: 0 } }, ['videoId', 'toIndex']),
   [TOOL.queueClear]: obj(),
   [TOOL.queueGet]: obj(),

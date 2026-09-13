@@ -267,8 +267,13 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     // ── catalog ───────────────────────────────────────────────────────────
     [TOOL.catalogSearch]: (c, i, sig) => {
       const criteria: Criteria = { query: str(i['query']), ...optionalCriteria(i, ['publishedAfter', 'publishedBefore']) };
-      return run(sig, TOOL.catalogSearch, c, i, `Search for "${str(i['query'])}"`, async () => {
+      return run(sig, TOOL.catalogSearch, c, i, `Search for "${str(i['query'])}"`, async (fence) => {
         const r = await search(criteria);
+        // Cancelled while on the network: the answer arrived for a request nobody
+        // is waiting for any more, so it changes nothing (Phase 12 Gate B).
+        if (fence.cancelled()) {
+          return refuse(REFUSAL_REASON.commandCancelled, 'Not applied: the request was cancelled while the search was running.');
+        }
         if (!r.ok) return r;
         deps.quota.set(r.value.quota);
         deps.results.set({ items: r.value.items, criteria: r.value.criteriaApplied, operation: 'fresh_search', fromCache: r.value.fromCache, setAsideUnknown: 0 });
@@ -314,6 +319,11 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     [TOOL.queueRemove]: (c, i, sig) => {
       const ids = strs(i['videoIds']);
       const entryIds = strs(i['entryIds']);
+      if ((ids.length > 0) === (entryIds.length > 0)) {
+        // The schema cannot say "exactly one" in a form the Claude API accepts, so it is said here.
+        return run(sig, TOOL.queueRemove, c, i, 'Remove from the queue', () =>
+          refuse(REFUSAL_REASON.argumentsInvalid, 'Name the videos to remove (videoIds) or the queue entries (entryIds) — exactly one of the two.'));
+      }
       const issued = deps.queue.get().items;
       const matching = entryIds.length > 0
         ? issued.filter((e) => entryIds.includes(e.entryId)).length

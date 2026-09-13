@@ -381,6 +381,28 @@ only); the same tab reconnecting still replaces itself.
 no unit test contains the library's reconnect. The operator log line added for Gate B is what made it
 visible — without it a connected-looking page would have been the only evidence.
 
+### 2026-09-14 — Phase 12: the first real assistant turn failed every turn
+
+Every turn test passed: real sockets, a real MCP page, a scripted model. The first Gate B turn against
+the real API was refused outright — `tools.16.custom.input_schema: input_schema does not support oneOf,
+allOf, or anyOf at the top level`. Tool 16 was `queue.remove`, whose "exactly one of videoIds or
+entryIds" rule a Phase 9 Gate C fix had written as a top-level `oneOf`. One tool's schema made the
+whole tools list unacceptable, so **no** command could reach the assistant. The scripted model accepts
+any schema, which is why nothing else could see it.
+
+The constraint moved into the handler (a stated refusal), and a contract test now checks every
+model-facing schema against the API's known restrictions — the class, not the one tool. It can only
+encode restrictions someone knows about; the live run is still the check for the rest.
+
+**Also from Gate B.** A turn cancelled while its search was on the network still applied the results
+when they arrived: the scheduler checked cancellation when the action took its lane, and a search waits
+inside its lane. Actions that wait before committing now ask `fence.cancelled()` first. The raw API
+error JSON was shown to the person; it now goes to the operator log, and the person gets a sentence.
+And "Understood as: not understood" was shown for commands the assistant then carried out.
+
+**Measured, live.** Acknowledgement 39–45 ms (before any network). "go back a bit" on
+`claude-opus-5`: getState, seek −15 s, 8.3 s end to end — inside the clarified budgets.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
