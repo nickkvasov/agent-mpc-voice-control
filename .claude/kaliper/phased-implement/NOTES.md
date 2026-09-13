@@ -172,6 +172,30 @@ inverse must actually be implemented. Recording a label effect with no
 annotation-undo path produced an Undo button that refused when pressed, which
 FR-044 forbids in as many words.
 
+### 2026-09-13 — what the live runs caught that the suite did not (T090)
+
+Collected at the end of the run. Every item below was green in the test suite at
+the moment it was found.
+
+| Found by | What the suite said | What was actually true |
+|---|---|---|
+| Gate B, Phase 3 | matcher tests green | `"speed 1.5"` applied 2x — the test asserted which TOOL matched, never the value |
+| Gate B, Phase 4 | US2 flow green | the Search button was fetching the SPA's own HTML; the run had stubbed that route |
+| Gate B, Phase 6 | unit tests green | effects were filed against the PREVIOUS action; a search offered Undo and "undid" a collection change |
+| Gate B, Phase 6 | label test green | the label was recorded and never applied — record and screen disagreed |
+| Gate C, Phase 3 | Gate A green | `test:e2e` was RED and sat in `final`, deferred four phases away |
+| Gate C, Phase 5 | break-it "passed" | the fix was never called; the test reached the helper, and the helper reached nothing |
+| T089 break-it pass | all green | a guard in `resolveCountedConfirmation` was dead code — removing it changed nothing |
+
+**The pattern.** Not one of these was a wrong assertion. Each was an assertion
+about the wrong thing: the routing rather than the value, the helper rather than
+the call site, the stub rather than the integration, the record rather than the
+screen. A suite can only fail where someone pointed it, and these are the places
+nobody pointed it.
+
+**What actually caught them.** Driving the application and reading the output.
+In four of the seven the defect was visible in a single line of screen text.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

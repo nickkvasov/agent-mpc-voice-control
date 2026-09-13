@@ -11,6 +11,10 @@ import { CommandChain } from './app/command-chain.ts';
 import { ResultsView } from './catalog/results-view.tsx';
 import { RecordView } from './activity/record-view.tsx';
 import { CurationView } from './curation/curation-view.tsx';
+import { PrivacyDisclosure } from './app/privacy-disclosure.tsx';
+import { ConnectionStatus, type ConnectionState } from './mcp/connection-status.tsx';
+import { HistoryControls } from './app/history-controls.tsx';
+import { refuseUnavailableView } from './mcp/tool-availability.ts';
 import {
   createCollection, deleteCollection, EMPTY_COLLECTIONS, type CollectionsState,
 } from './curation/collections.ts';
@@ -151,6 +155,18 @@ export function App() {
     }
   }, [collections, destination]);
 
+  /**
+   * The assistant's connection.
+   *
+   * `unavailable` is the honest default here: no gateway exists yet, so
+   * claiming "connecting" forever would leave a person waiting for something
+   * that is not coming (FR-037).
+   */
+  const [connection] = useState<ConnectionState>('unavailable');
+  const connectionReason = 'No agent gateway is configured for this deployment yet.';
+
+  const [commandCount, setCommandCount] = useState(0);
+
   const [storageDurable, setStorageDurable] = useState<boolean | null>(null);
   const stores = useRef<Awaited<ReturnType<typeof openStores>> | null>(null);
 
@@ -213,12 +229,17 @@ export function App() {
   const run = useCallback(
     async (text: string) => {
       setHeard(text);
+      setCommandCount((n) => n + 1);
       const m = matchPlaybackCommand(text);
       if (!m.matched) {
         // The matcher never guesses. With no agent connected there is nowhere
         // to fall through to, so this is refused with a reason (FR-034/FR-037).
         setInterpretation(null);
-        setOutcome('Not a playback command, and the assistant is not connected, so nothing was done.');
+        // Named reason, not a shrug: the matcher declined and there is nowhere
+        // to fall through to (FR-034, FR-037).
+        setOutcome(
+          'Not a playback command, and the assistant is not connected, so nothing was done. Everything here still works by hand.',
+        );
         return;
       }
       setInterpretation(m.match.interpretation);
@@ -234,7 +255,10 @@ export function App() {
           case TOOL.playbackSetVolume: return setVolume(p, i['volume'] as number);
           case TOOL.playbackSetMuted: return setMuted(p, i['muted'] as boolean);
           case TOOL.playbackSetCaptions: return setCaptions(p, { enabled: i['enabled'] as boolean });
-          default: return { ok: false, reason: 'capability_unsupported', detail: `${m.match.tool} is not wired up in this slice.` } as ToolResult<unknown>;
+          // FR-035: name the view that owns it rather than reporting a
+          // generic failure, which would send someone hunting for a bug in
+          // something that is merely not on screen.
+          default: return refuseUnavailableView(m.match.tool);
         }
       };
       // Through the recorded boundary, so a local command leaves an entry just
@@ -441,6 +465,7 @@ export function App() {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
       <h1>Voice Video Control</h1>
+      <ConnectionStatus state={connection} reason={connection === 'unavailable' ? connectionReason : null} />
       <PushToTalk onUtterance={(pending) => enqueue(() => pending)} />
       <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t))} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
@@ -650,6 +675,14 @@ export function App() {
           )
         }
       />
+      <HistoryControls
+        commandCount={commandCount}
+        onClear={() => {
+          void stores.current?.stores.commands.clear();
+          setCommandCount(0);
+          setOutcome('Command history cleared from this device.');
+        }}
+      />
       <RecordView
         entries={activity}
         eligibilityContext={{
@@ -700,6 +733,7 @@ export function App() {
         captionsTrack={track === '' ? null : track}
         onCommand={(t) => enqueue(() => Promise.resolve(t))}
       />
+      <PrivacyDisclosure voiceAvailable={false} assistantConnected={connection === 'connected'} />
     </main>
   );
 }

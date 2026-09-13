@@ -282,15 +282,15 @@ offers — restore correctly and are tested.
 requires. **These are not optional cleanup** — Scenario 5 and 6 are where this system's characteristic
 failure would hide.
 
-- [ ] T082 Implement the disclosure that command text and video titles reach an external language model service (FR-045) in `src/app/privacy-disclosure.tsx`
-- [ ] T083 Implement assistant-unavailable state keeping the whole interface usable by hand (FR-037) in `src/mcp/connection-status.tsx`
-- [ ] T084 Implement command ordering — applied in the order issued, or explicitly refused (FR-038) — in `src/app/command-queue.ts`
-- [ ] T085 Implement the unavailable-view refusal naming the view that owns the capability (FR-035) in `src/mcp/tool-availability.ts`
-- [ ] T086 [P] Implement clearing of command transcript history (FR-041) in `src/app/history-controls.tsx`
-- [ ] T087 Playwright **failure matrix** covering quickstart Scenario 5: recognition unavailable, agent disconnected, quota exhausted, video removed/embedding disallowed, ad in progress, view not open — each asserting a stated reason (SC-009) — in `tests/e2e/failure-matrix.spec.ts`
-- [ ] T088 Playwright **privacy assertions** covering quickstart Scenario 6: no request carries audio (SC-013), capture indicator matches capture window (SC-011), disclosure present (FR-045), in `tests/e2e/privacy.spec.ts`
-- [ ] T089 **Break-it-to-prove-it pass**: for each confirmation gate, the no-bare-success invariant and the no-audio-egress assertion, delete the check, confirm red, restore, and record it in `.claude/kaliper/phased-implement/NOTES.md`
-- [ ] T090 Record in `.claude/kaliper/phased-implement/NOTES.md` every incident a green suite missed during live runs
+- [X] T082 Implement the disclosure that command text and video titles reach an external language model service (FR-045) in `src/app/privacy-disclosure.tsx`
+- [X] T083 Implement assistant-unavailable state keeping the whole interface usable by hand (FR-037) in `src/mcp/connection-status.tsx`
+- [X] T084 Implement command ordering — applied in the order issued, or explicitly refused (FR-038) — in `src/app/command-chain.ts` (not `command-queue.ts`: the ordering boundary was extracted during Phase 3's Gate C, when a chain living inside a React callback proved untestable)
+- [X] T085 Implement the unavailable-view refusal naming the view that owns the capability (FR-035) in `src/mcp/tool-availability.ts`
+- [X] T086 [P] Implement clearing of command transcript history (FR-041) in `src/app/history-controls.tsx`
+- [X] T087 Playwright **failure matrix** covering quickstart Scenario 5: recognition unavailable, agent disconnected, quota exhausted, video removed/embedding disallowed, ad in progress, view not open — each asserting a stated reason (SC-009) — in `tests/e2e/failure-matrix.spec.ts`
+- [X] T088 Playwright **privacy assertions** covering quickstart Scenario 6: no request carries audio (SC-013), capture indicator matches capture window (SC-011), disclosure present (FR-045), in `tests/e2e/privacy.spec.ts`
+- [X] T089 **Break-it-to-prove-it pass**: for each confirmation gate, the no-bare-success invariant and the no-audio-egress assertion, delete the check, confirm red, restore, and record it in `.claude/kaliper/phased-implement/NOTES.md`
+- [X] T090 Record in `.claude/kaliper/phased-implement/NOTES.md` every incident a green suite missed during live runs
 
 ---
 

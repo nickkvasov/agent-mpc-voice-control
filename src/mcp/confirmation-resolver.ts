@@ -51,7 +51,9 @@ export function resolveCountedConfirmation(response: string | null | undefined, 
   if (typeof response !== 'string') return 'refused';
   const words = response.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w !== '');
   if (words.length === 0) return 'refused';
-  if (!words.includes(String(count))) return 'refused';
+  // The count must appear EXACTLY once. This one check covers absent and
+  // repeated alike; an `includes` test above it was dead code, which the
+  // break-it pass exposed by removing it and seeing nothing go red.
   if (words.filter((w) => w === String(count)).length !== 1) return 'refused';
 
   let sawAffirmative = false;
