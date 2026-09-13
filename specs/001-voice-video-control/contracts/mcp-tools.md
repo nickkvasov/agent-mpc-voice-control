@@ -40,7 +40,10 @@ them (IMMUNE-N).
 `refused_by_player` · `ad_in_progress` · `capability_unsupported` · `quota_exhausted` ·
 `view_not_open` · `needs_confirmation` · `not_reversible` · `superseded` · `arguments_invalid` ·
 `effect_unverifiable` · **`overtaken_by_newer_command`** (FR-038 — names the newer command) ·
-**`autoplay_blocked`** (the browser refused to start playback; a press is needed — R10)
+**`autoplay_blocked`** (the browser refused to start playback; a press is needed — R10) ·
+**`command_cancelled`** (the call's command was revoked, or its signal aborted, before it applied — FR-004) ·
+**`command_finished`** (the call names a command that has already finished; it is never re-attributed — R7) ·
+**`unknown_command`** (the call names a command this page never issued — R7)
 
 `assistant_unavailable` and `assistant_allowance_spent` are not tool reasons: they refuse a turn before
 any tool runs, and belong to [backend-http.md](./backend-http.md).
