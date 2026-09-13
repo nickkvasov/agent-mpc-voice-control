@@ -403,6 +403,16 @@ And "Understood as: not understood" was shown for commands the assistant then ca
 **Measured, live.** Acknowledgement 39–45 ms (before any network). "go back a bit" on
 `claude-opus-5`: getState, seek −15 s, 8.3 s end to end — inside the clarified budgets.
 
+**Gate C (3 rounds, clean at 2c6e6b0).** Every finding was about what a finished turn *means*. Capping
+the turn list at five hid a slow turn's Cancel behind newer ones. The history recorded "applied"
+whenever the stream ended normally, even when every tool had refused, and "refused" for a turn that
+stopped at the step limit after eight successful additions. A model failure after a tool ran said
+"Nothing was done". Round 2 caught the fix itself counting only successful calls: `playback.next` can
+load a video and *then* refuse `autoplay_blocked`, so a refusal is not proof that nothing changed. The
+rule now: only a turn that called no tool says nothing was done, and an unfinished turn that applied
+anything is `partially_applied`, with why it stopped as the reason. The allowance reset on an idle
+page is App wiring with no unit seam; its e2e is part of T135.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?
