@@ -368,6 +368,19 @@ after the fake's route aborted the fake itself — the page then showed the load
   Look for what the fake never does, not only what it does differently.
 - After a bulk import rewrite, grep for the files it did NOT change.
 
+### 2026-09-14 — Phase 11: two tabs, one session, a reconnect loop
+
+Every gateway test passed on a real socket, including "a second connection for the same session
+replaces the first". Gate B opened a second tab in the same browser, and the backend log showed the one
+session connecting six times in a few seconds: two tabs share a session cookie, each new connection
+replaced the other, and `agent-mcp-react` faithfully reconnected the loser. The test had asserted the
+rule; the rule was wrong. Connections are now keyed by session and tab (`useMcpTabId`, routing metadata
+only); the same tab reconnecting still replaces itself.
+
+**Why only Gate B could find it.** The library's reconnect is what turns a replacement into a loop, and
+no unit test contains the library's reconnect. The operator log line added for Gate B is what made it
+visible — without it a connected-looking page would have been the only evidence.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

@@ -12,23 +12,27 @@ const TICKET_TTL_MS = 30_000;
 interface Ticket {
   readonly token: string;
   readonly expiresAt: number;
+  /** The session the socket this ticket admits is bound to (R8). */
+  readonly sessionId: string;
+  /** Which tab of that session — routing metadata, never a credential. */
+  readonly tabId: string;
   used: boolean;
 }
 
 const issued = new Map<string, Ticket>();
 
-export function mintTicket(gatewayOrigin: string): { url: string } {
+export function mintTicket(gatewayOrigin: string, sessionId: string, tabId: string): { url: string } {
   // Prune on issuance. Found at Gate C: without this the map retained every
   // ticket ever minted, so a long-running service grew on each reconnect
   // despite the 30-second lifetime.
   pruneExpired();
   const token = randomUUID();
-  issued.set(token, { token, expiresAt: Date.now() + TICKET_TTL_MS, used: false });
+  issued.set(token, { token, expiresAt: Date.now() + TICKET_TTL_MS, sessionId, tabId, used: false });
   return { url: `${gatewayOrigin}/mcp?ticket=${token}` };
 }
 
 export type TicketCheck =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly sessionId: string; readonly tabId: string }
   | { readonly ok: false; readonly reason: 'unknown' | 'expired' | 'replayed' };
 
 export function redeemTicket(token: string): TicketCheck {
@@ -41,7 +45,7 @@ export function redeemTicket(token: string): TicketCheck {
   if (t.used) return { ok: false, reason: 'replayed' };
   if (Date.now() > t.expiresAt) return { ok: false, reason: 'expired' };
   t.used = true;
-  return { ok: true };
+  return { ok: true, sessionId: t.sessionId, tabId: t.tabId };
 }
 
 function pruneExpired(now: number = Date.now()): void {

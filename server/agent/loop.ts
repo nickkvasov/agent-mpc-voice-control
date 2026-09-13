@@ -92,10 +92,11 @@ export async function runAgentTurn(
   let lastTools: Anthropic.Tool[] = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i += 1) {
-    // Re-queried every iteration, not once per turn. Tools exist only while the
-    // UI declaring them is on screen, so a person changing view mid-turn would
-    // otherwise leave the model advertising tools that are gone and blind to
-    // ones that appeared (FR-035).
+    // Asked every iteration, not once per turn: tools exist only while the UI
+    // declaring them is on screen, so a view changing mid-turn must reach the
+    // model (FR-035). Cheap since Phase 11 — the page connection serves a cached
+    // listing and drops it when the page announces `tools/list_changed` (R6),
+    // so this is a socket round trip only when the tools actually changed.
     const declared = await transport.listTools();
     const names = buildToolNameMap(declared.map((t) => t.name));
     const fresh: Anthropic.Tool[] = declared.map((t) => ({

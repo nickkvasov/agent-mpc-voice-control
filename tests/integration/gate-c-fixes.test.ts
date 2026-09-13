@@ -42,7 +42,7 @@ describe('Gate C regressions', () => {
   });
 
   it('evicts expired and used tickets rather than retaining every one minted', () => {
-    for (let i = 0; i < 5; i++) mintTicket('wss://gw.example');
+    for (let i = 0; i < 5; i++) mintTicket('wss://gw.example', 'session-evict', 'tab-1');
     expect(__ticketCount()).toBeLessThanOrEqual(5);
   });
 });

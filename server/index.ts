@@ -3,6 +3,7 @@ import { CatalogSearch } from './catalog-proxy/search.ts';
 import { SearchBudget } from './catalog-proxy/budget.ts';
 import { youTubeDurationFiller, youTubeSearchFetcher, youTubeVideoDetailsFetcher } from './catalog-proxy/youtube.ts';
 import { handle, requestUrl, writeReply, type RouteDeps } from './routes.ts';
+import { attachGateway } from './gateway/upgrade.ts';
 
 /**
  * Backend scaffold. It exists for the three things the browser must not hold:
@@ -41,6 +42,26 @@ export function createDeps(): RouteDeps {
   };
 }
 
+/** Request bodies here are a few fields; anything larger is not one of ours. */
+const MAX_BODY_BYTES = 16 * 1024;
+
+/** A body that is absent, too large or not JSON reads as `undefined`, and the route refuses it by name. */
+async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) return undefined;
+    chunks.push(chunk as Buffer);
+  }
+  if (size === 0) return undefined;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Built ONCE per server, not per request. Found at Gate C: constructing these
  * per request gave every call a fresh SearchQuota, so the daily counter never
@@ -55,7 +76,8 @@ export const server = createServer((req, res) => {
       await writeReply(res, { status: 200, body: { ok: true } });
       return;
     }
-    const reply = await handle(req.method ?? 'GET', requestUrl(req), deps);
+    const body = req.method === 'POST' ? await readJsonBody(req) : undefined;
+    const reply = await handle(req.method ?? 'GET', requestUrl(req), deps, { cookie: req.headers.cookie, body });
     await writeReply(
       res,
       reply ?? {
@@ -79,6 +101,13 @@ export const server = createServer((req, res) => {
     }
   });
 });
+
+/**
+ * The WebSocket gateway lives in this process (R6): a turn endpoint must reach
+ * the socket of a specific page, and a second process would need its own channel
+ * to the first to do it.
+ */
+export const gateway = attachGateway(server);
 
 // Only listen when run directly, so tests can import the server without
 // binding a port.

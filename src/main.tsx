@@ -1,4 +1,5 @@
-import { StrictMode } from 'react';
+import { StrictMode, useCallback } from 'react';
+import { useMcpTabId } from 'agent-mcp-react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { McpRoot } from './mcp/provider.tsx';
@@ -15,8 +16,14 @@ if (root === null) {
  * is never parsed here (contracts/backend-http.md). A refusal is thrown with
  * the backend's own reason, so the connection state can say why.
  */
-async function getTicketUrl(): Promise<string> {
-  const res = await fetch('/api/mcp-ticket', { method: 'POST' });
+async function getTicketUrl(tabId: string): Promise<string> {
+  const res = await fetch('/api/mcp-ticket', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    // Which tab this connection is for — routing metadata the library publishes
+    // for exactly this use. The session cookie, not this, is what admits.
+    body: JSON.stringify({ tabId }),
+  });
   const body = (await res.json().catch(() => ({}))) as { url?: unknown; reason?: unknown; detail?: unknown };
   if (res.status !== 200 || typeof body.url !== 'string') {
     throw new Error(`No connection ticket (${String(res.status)}): ${typeof body.detail === 'string' ? body.detail : 'the backend gave no reason'}`);
@@ -26,10 +33,18 @@ async function getTicketUrl(): Promise<string> {
 
 // T104. Mounted at last: until Phase 9 the provider was written but never
 // rendered, so the page published no tools at all (tasks.md, found after closeout).
-createRoot(root).render(
-  <StrictMode>
-    <McpRoot getTicketUrl={getTicketUrl}>
+function Root() {
+  const tabId = useMcpTabId();
+  const supplier = useCallback(() => getTicketUrl(tabId), [tabId]);
+  return (
+    <McpRoot getTicketUrl={supplier}>
       <App />
     </McpRoot>
+  );
+}
+
+createRoot(root).render(
+  <StrictMode>
+    <Root />
   </StrictMode>,
 );

@@ -10,7 +10,9 @@ and `agent-mcp-react` requires the page to fetch a connection URL it never parse
 
 Mints a single-use connection URL for the page's MCP server.
 
-**Request**: `{}` — no body. Anonymous (FR-042).
+**Request**: `{ "tabId": "…" }` — the page instance id `agent-mcp-react` publishes (`useMcpTabId`). Anonymous
+(FR-042). A missing or malformed `tabId` → **400** `missing_tab_id`. The tab id is routing metadata and
+never admits anything; the session cookie does.
 
 **Response 200**: `{ "url": "ws://…/mcp?ticket=…" }`, and a `Set-Cookie` for the anonymous session
 (`HttpOnly; SameSite=Strict; Path=/api`) if the request carried none. The ticket records that session,
@@ -55,13 +57,15 @@ endpoint returned.
   in that window would reach an unauthenticated peer.
 - After the handshake, the backend is the **MCP client** and the page the server. One JSON-RPC message
   per text frame, no envelope. A frame that is not a JSON-RPC message is reported and dropped.
-- The connection is bound to the ticket's session. A second connection for the same session replaces
-  the first, which is closed; a turn is routed to the current one.
+- The connection is bound to the ticket's session **and tab**. Two tabs of one browser session keep
+  separate connections; the same tab reconnecting replaces its own earlier one, which is closed. Keyed by
+  session alone, two tabs replaced each other and reconnected in a loop (Phase 11 Gate B).
 - `notifications/tools/list_changed` from the page invalidates the backend's cached listing.
 
 ## `POST /api/assistant/turns` — run one command through the assistant (R9)
 
-**Request**: `{ "commandId": "…", "text": "go back a bit" }`, with the session cookie. The page's
+**Request**: `{ "commandId": "…", "tabId": "…", "text": "go back a bit" }`, with the session cookie. The
+turn reaches only the connection of that session's named tab. The page's
 tools, not this body, carry everything the assistant may act on.
 
 **Response 200**: `text/event-stream`. Events, in order, `done` always last:
@@ -79,7 +83,7 @@ tools, not this body, carry everything the assistant may act on.
 
 | Status | `reason` | When |
 |---|---|---|
-| 409 | `assistant_unavailable` | No page connection is bound to this session |
+| 409 | `assistant_unavailable` | No page connection is bound to this session and tab |
 | 429 | `assistant_allowance_spent` | Session or daily limit reached; body carries `limit: "session" \| "day"` and `resetsAt` |
 | 503 | `agent_unavailable` | No Anthropic credential configured |
 

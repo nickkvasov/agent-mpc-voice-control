@@ -428,17 +428,17 @@ in-process transport.
 
 ### Tests for Phase 11
 
-- [ ] T118 [P] Integration test on a real `ws` server bound to an ephemeral port: a valid ticket is redeemed during the upgrade; unknown, expired and replayed tickets get HTTP 401 and the client never sees `open`; a frame that is not JSON-RPC is reported and dropped; `onclose` fires exactly once however the socket ends; a connection counts as ready only after `initialize` completes, in `tests/integration/gateway.test.ts`
-- [ ] T119 [P] Integration test: the tool listing is cached per connection and invalidated by `notifications/tools/list_changed`; a second connection for the same session replaces the first; tools that vanish mid-turn are handled by the loop's existing path, in `tests/integration/gateway-tool-listing.test.ts`
+- [X] T118 [P] Integration test on a real `ws` server bound to an ephemeral port: a valid ticket is redeemed during the upgrade; unknown, expired and replayed tickets get HTTP 401 and the client never sees `open`; a frame that is not JSON-RPC is reported and dropped; `onclose` fires exactly once however the socket ends; a connection counts as ready only after `initialize` completes, in `tests/integration/gateway.test.ts`
+- [X] T119 [P] Integration test: the tool listing is cached per connection and invalidated by `notifications/tools/list_changed`; two tabs of one session stay connected side by side and the same tab reconnecting replaces its own connection; a call to a tool that vanished comes back as a refusal, in `tests/integration/gateway-tool-listing.test.ts` (the stand-in page in `tests/support/fake-page.ts` is the SDK's own `Server` dialing out)
 
 ### Implementation for Phase 11
 
-- [ ] T120 Issue the anonymous session cookie (`HttpOnly; SameSite=Strict; Path=/api`) from `POST /api/mcp-ticket` and record the session on the ticket, in `server/ticket/session.ts` and `server/ticket/route.ts`
-- [ ] T121 Accept WebSocket upgrades on `/mcp` with `WebSocketServer({ noServer: true })`, redeeming the ticket before the handshake and binding the connection to its session, in `server/gateway/upgrade.ts`, wired in `server/index.ts`
-- [ ] T122 Implement the frame `Transport` (the SDK's `deserializeMessage`, no `start()` outside `client.connect()`, `onclose` once) and a bounded `initialize`, in `server/gateway/transport.ts`
-- [ ] T123 Implement the per-session page connection exposing the loop's `ToolTransport` over a cached listing invalidated by `list_changed`, in `server/gateway/page-connection.ts`
-- [ ] T124 Verify the Messages API tool-name limit against the current API reference (the reference gateway says 64, this code says 128) and make the alias map refuse a name over it rather than let the request fail, in `server/agent/tool-names.ts`
-- [ ] T125 Use the cached listing instead of re-listing every iteration, keeping the vanished-tools finalisation, in `server/agent/loop.ts`
+- [X] T120 Issue the anonymous session cookie (`HttpOnly; SameSite=Strict; Path=/api`) from `POST /api/mcp-ticket` and record the session on the ticket, in `server/ticket/session.ts` and `server/ticket/route.ts` — and the page's tab id (`useMcpTabId`) with it, sent by `src/main.tsx`: Gate B found two tabs of one session replacing each other in a reconnect loop when connections were keyed by session alone
+- [X] T121 Accept WebSocket upgrades on `/mcp` with `WebSocketServer({ noServer: true })`, redeeming the ticket before the handshake and binding the connection to its session, in `server/gateway/upgrade.ts`, wired in `server/index.ts`
+- [X] T122 Implement the frame `Transport` (the SDK's `deserializeMessage`, no `start()` outside `client.connect()`, `onclose` once) and a bounded `initialize`, in `server/gateway/transport.ts`
+- [X] T123 Implement the per-session page connection exposing the loop's `ToolTransport` over a cached listing invalidated by `list_changed`, in `server/gateway/page-connection.ts`
+- [X] T124 Verify the Messages API tool-name limit against the current API reference (the reference gateway says 64, this code says 128) and make the alias map refuse a name over it rather than let the request fail, in `server/agent/tool-names.ts` — the API reference (platform.claude.com, Define tools) states `^[a-zA-Z0-9_-]{1,128}$`; this code was right, the reference gateway's 64 is out of date, and the map already refused longer names
+- [X] T125 Use the cached listing instead of re-listing every iteration, keeping the vanished-tools finalisation, in `server/agent/loop.ts`
 
 ---
 
@@ -455,7 +455,7 @@ in-process transport.
 ### Implementation for Phase 12
 
 - [ ] T129 Extract the Pacific-midnight calculation into one owner used by both budgets, and implement `AssistantAllowance`, in `server/time/pacific-day.ts`, `server/catalog-proxy/budget.ts` and `server/assistant/allowance.ts`
-- [ ] T130 Implement `POST /api/assistant/turns`: session → connection, allowance admission, the SSE stream, `commandId` injection on every forwarded call, cancellation, in `server/assistant/turns.ts`, routed from `server/routes.ts`
+- [ ] T130 Implement `POST /api/assistant/turns`: session and tab → connection, allowance admission, the SSE stream, `commandId` injection on every forwarded call, cancellation, in `server/assistant/turns.ts`, routed from `server/routes.ts`
 - [ ] T131 Add a scripted model client for deterministic e2e runs, enabled only by an explicit environment variable and **refusing to start when `ANTHROPIC_API_KEY` is also set**, so a scripted run cannot pass itself off as a live one, in `server/agent/scripted-client.ts`
 - [ ] T132 Implement the page's turn client: matcher fall-through → local acknowledgement → SSE reader → `late` at ten seconds → cancel, in `src/assistant/turn-client.ts`
 - [ ] T133 Show turns — acknowledged, running, late, done, refused, cancelled — with their tool calls and the allowance and reset time, replacing "the assistant is not connected", in `src/assistant/turn-view.tsx` and `src/App.tsx`

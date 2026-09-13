@@ -181,7 +181,7 @@ Backend-owned, anonymous (FR-042).
 | Field | Type | Notes |
 |---|---|---|
 | `sessionId` | opaque string | Carried in an `HttpOnly`, `SameSite=Strict` cookie set by `POST /api/mcp-ticket`. |
-| `connection` | the page's MCP socket \| none | Bound when a ticket minted for this session is redeemed at the upgrade. A turn for a session with no connection is refused `assistant_unavailable`. |
+| `connections` | one MCP socket per tab | Bound when a ticket minted for this session and tab is redeemed at the upgrade. A turn names its tab; one with no connection for that tab is refused `assistant_unavailable`. |
 | `turnsUsed` | integer | Counted when a turn is admitted, not when it succeeds. |
 
 A tab identifier, if the page sends one, is routing metadata and never admits anything (R8).
