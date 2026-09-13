@@ -70,7 +70,9 @@ export async function handleTurn(req: IncomingMessage, res: ServerResponse, body
   };
   send('acknowledged', { turnId, allowance: admission.snapshot });
 
+  let appliedCalls = 0;
   const forward = (e: TurnEvent): void => {
+    if (e.type === 'tool_result' && e.outcome.ok) appliedCalls += 1;
     if (e.type === 'tool_call') send('tool_call', { toolName: e.toolName, input: e.input });
     else if (e.type === 'tool_result') {
       send('tool_result', e.outcome.ok
@@ -87,12 +89,13 @@ export async function handleTurn(req: IncomingMessage, res: ServerResponse, body
     // Gate B showed the raw API error JSON on screen.
     process.stderr.write(`[assistant] turn ${turnId} failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
     const status = (cause as { status?: unknown } | null)?.status;
-    send('refused', {
-      reason: 'turn_failed',
-      detail: typeof status === 'number'
-        ? `The assistant service rejected the request (${String(status)}). Nothing was done; everything here still works by hand.`
-        : 'The assistant could not finish this request. Nothing more was done; everything here still works by hand.',
-    });
+    const why = typeof status === 'number' ? `the assistant service rejected a request (${String(status)})` : 'the assistant could not continue';
+    // Never "nothing was done" once a tool has acted: the page already changed,
+    // and saying otherwise invites a duplicate retry (Gate C).
+    const already = appliedCalls === 0
+      ? 'Nothing was done.'
+      : `${String(appliedCalls)} action${appliedCalls === 1 ? ' was' : 's were'} already applied before it stopped — see above.`;
+    send('refused', { reason: 'turn_failed', detail: `This request did not finish: ${why}. ${already} Everything here still works by hand.` });
     send('done', { stopReason: 'failed' });
   } finally {
     res.end();

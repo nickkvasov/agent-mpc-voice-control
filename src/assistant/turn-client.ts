@@ -118,9 +118,14 @@ export function startTurn(
         else if (event === 'refused') update({ refusal: { reason: String(data['reason']), detail: String(data['detail']) } });
         else if (event === 'done') {
           const stopReason = String(data['stopReason']);
-          update(view.refusal !== null || stopReason === 'failed'
-            ? { state: 'refused', stopReason }
-            : stopReason === 'cancelled' ? { state: 'cancelled', stopReason } : { state: 'done', stopReason });
+          if (stopReason === 'iteration_limit') {
+            // Stopped, not finished: shown as such, never as "Done." (contract; Gate C).
+            update({ state: 'refused', stopReason, refusal: { reason: 'iteration_limit', detail: 'The assistant stopped at its step limit without finishing. What it already did is listed above.' } });
+          } else {
+            update(view.refusal !== null || stopReason === 'failed'
+              ? { state: 'refused', stopReason }
+              : stopReason === 'cancelled' ? { state: 'cancelled', stopReason } : { state: 'done', stopReason });
+          }
         }
       });
     } catch (cause) {
@@ -163,3 +168,35 @@ async function readEvents(res: Response, onEvent: (event: string, data: Record<s
     }
   }
 }
+
+/** Finished turns kept on screen. Unfinished turns are never hidden: each carries its Cancel. */
+export const MAX_FINISHED_SHOWN = 5;
+
+/**
+ * Every unfinished turn, then the most recent finished ones. Limiting all turns
+ * together hid a slow turn behind five newer ones — and its Cancel button with
+ * it, leaving work running with no way to stop it (Gate C).
+ */
+export function visibleTurns(turns: readonly TurnView[]): readonly TurnView[] {
+  const unfinished = turns.filter((t) => !TERMINAL.includes(t.state));
+  const finished = turns.filter((t) => TERMINAL.includes(t.state)).slice(0, MAX_FINISHED_SHOWN);
+  return [...unfinished, ...finished];
+}
+
+/**
+ * What a turn did, for the command history (data-model Command.outcome).
+ *
+ * A stream that ended normally is not an action that succeeded: a tool may have
+ * refused — a person declining a deletion — while the assistant explained it
+ * perfectly. The outcome comes from the tool results (Gate C).
+ */
+export function commandOutcome(view: TurnView): { readonly outcome: 'applied' | 'partially_applied' | 'refused' | 'cancelled'; readonly reason: string | null } {
+  if (view.state === 'cancelled') return { outcome: 'cancelled', reason: 'cancelled' };
+  if (view.state !== 'done') return { outcome: 'refused', reason: view.refusal?.reason ?? view.stopReason ?? view.state };
+  const applied = view.toolCalls.filter((c) => c.ok === true).length;
+  const refused = view.toolCalls.filter((c) => c.ok === false);
+  if (refused.length === 0) return { outcome: 'applied', reason: null };
+  if (applied === 0) return { outcome: 'refused', reason: refused[0]?.reason ?? 'refused' };
+  return { outcome: 'partially_applied', reason: refused[0]?.reason ?? 'refused' };
+}
+

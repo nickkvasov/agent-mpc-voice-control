@@ -208,4 +208,29 @@ describe('assistant turns (T127)', () => {
     expect(r.status).toBe(400);
     expect(await r.json()).toMatchObject({ reason: 'invalid_turn' });
   });
+
+  it('[Gate C] a model failure after a tool already acted does not claim nothing was done', async () => {
+    const calls: unknown[] = [];
+    let n = 0;
+    const failing = {
+      messages: {
+        stream: () => ({
+          finalMessage: async () => {
+            n += 1;
+            if (n === 1) return use('playback__seek', { mode: 'relative', seconds: -10 });
+            throw Object.assign(new Error('rate limited'), { status: 429 });
+          },
+        }),
+      },
+    } as unknown as Anthropic;
+    const { origin, base } = await start(failing);
+    await connectTab(origin, 'tab-1', [seekTool(calls)]);
+    const events = parseSse(await (await postTurn(base, { commandId: 'cmd-f', tabId: 'tab-1', text: 'go back' })).text());
+    const refused = events.find((e) => e.event === 'refused');
+    expect(calls).toHaveLength(1);
+    expect(String(refused?.data['detail'])).not.toMatch(/Nothing was done/);
+    expect(String(refused?.data['detail'])).toMatch(/1 action/);
+    expect(events.at(-1)?.event).toBe('done');
+  });
 });
+

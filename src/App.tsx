@@ -12,7 +12,7 @@ import { CurationView } from './curation/curation-view.tsx';
 import { PrivacyDisclosure } from './app/privacy-disclosure.tsx';
 import { ConnectionStatus, deriveConnection, type ConnectionState } from './mcp/connection-status.tsx';
 import { useMcpConnection, useMcpTabId } from 'agent-mcp-react';
-import { startTurn, type TurnRefusal, type TurnView as TurnViewState } from './assistant/turn-client.ts';
+import { commandOutcome, startTurn, visibleTurns, type TurnRefusal, type TurnView as TurnViewState } from './assistant/turn-client.ts';
 import { TurnView } from './assistant/turn-view.tsx';
 import { HistoryControls } from './app/history-controls.tsx';
 import { EMPTY_COLLECTIONS, type Collection, type CollectionsState } from './curation/collections.ts';
@@ -243,6 +243,18 @@ export function App() {
   // The intake callback outlives renders; these let it read the current state.
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
+  const mcpConnectionRef = useRef(mcpConnection);
+  mcpConnectionRef.current = mcpConnection;
+  const allowanceRefusalRef = useRef(allowanceRefusal);
+  allowanceRefusalRef.current = allowanceRefusal;
+
+  // A spent allowance clears itself at its reset time, whether or not anything
+  // else happens to re-render the page (Gate C).
+  useEffect(() => {
+    if (allowanceRefusal?.resetsAt === undefined) return;
+    const timer = setTimeout(() => setAllowanceRefusal(null), Math.max(0, allowanceRefusal.resetsAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [allowanceRefusal]);
   const connectionReasonRef = useRef(connectionReason);
   connectionReasonRef.current = connectionReason;
 
@@ -383,7 +395,7 @@ export function App() {
            * refused — `pause` with nothing playing, for instance — so the stored
            * history contradicted both the screen and the activity record (Gate C).
            */
-          const persist = (outcome: 'applied' | 'refused', refusalReason: string | null): void => {
+          const persist = (outcome: 'applied' | 'partially_applied' | 'refused' | 'cancelled', refusalReason: string | null): void => {
             void stores.current?.stores.commands
               .append({
                 commandId: command.commandId,
@@ -404,7 +416,9 @@ export function App() {
             // FR-003: "not understood" was shown for commands the assistant then
             // carried out (Gate B). Say what actually happens to it.
             setInterpretation(connectionRef.current === 'connected' ? 'Asked the assistant' : null);
-            if (connectionRef.current !== 'connected') {
+            // Evaluated NOW, not from the last render: an idle page crossing the
+            // allowance reset time would otherwise still refuse locally (Gate C).
+            if (deriveConnection(mcpConnectionRef.current, allowanceRefusalRef.current, Date.now()).state !== 'connected') {
               // The matcher never guesses, and there is no assistant to ask: refused
               // with the reason it is unavailable (FR-034, FR-037).
               setOutcome(`Not a playback command, and the assistant is not available (${connectionReasonRef.current ?? 'not connected'}), so nothing was done. Everything here still works by hand.`);
@@ -417,7 +431,7 @@ export function App() {
             const turn = startTurn(
               { commandId: command.commandId, tabId, text },
               (view) => {
-                setTurns((cur) => [view, ...cur.filter((t) => t.commandId !== view.commandId)].slice(0, 5));
+                setTurns((cur) => visibleTurns([view, ...cur.filter((t) => t.commandId !== view.commandId)]));
                 setOutcome(view.state === 'refused' ? `Refused: ${view.refusal?.detail ?? 'no reason given'}` : view.state === 'done' ? (view.messages.at(-1) ?? 'Done.') : TURN_OUTCOME[view.state]);
                 if (view.refusal?.reason === 'assistant_allowance_spent') setAllowanceRefusal(view.refusal);
               },
@@ -426,7 +440,8 @@ export function App() {
             cancelTurn.current.set(command.commandId, () => turn.cancel());
             const final = await turn.done;
             cancelTurn.current.delete(command.commandId);
-            persist(final.state === 'done' ? 'applied' : 'refused', final.state === 'done' ? null : (final.refusal?.reason ?? final.state));
+            const { outcome, reason } = commandOutcome(final);
+            persist(outcome, reason);
             return;
           }
           setInterpretation(m.match.interpretation);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { startTurn, LATE_AFTER_MS, type TurnView } from '../../src/assistant/turn-client.ts';
+import { commandOutcome, MAX_FINISHED_SHOWN, startTurn, LATE_AFTER_MS, visibleTurns, type TurnView } from '../../src/assistant/turn-client.ts';
 
 /** T128 — the page's side of a turn (R9, SC-001/SC-012 acknowledgement, FR-004). */
 function streamingFetch() {
@@ -116,5 +116,44 @@ describe('turn client', () => {
     const final = await turn.done;
     expect(final.state).toBe('refused');
     expect(final.refusal?.detail).toMatch(/ended before/);
+  });
+});
+
+describe('Phase 12 Gate C: what a finished turn means', () => {
+  const view = (over: Partial<TurnView>): TurnView => ({
+    commandId: 'c', text: 't', state: 'done', acknowledgedAt: 0, lateAt: null, toolCalls: [], messages: [], refusal: null, stopReason: 'end_turn', ...over,
+  });
+
+  it('a stream that stopped at the step limit is not shown as done', async () => {
+    const f = streamingFetch();
+    const turn = startTurn(request, () => {}, { fetch: f.fetchImpl, revoke: () => {} });
+    await new Promise((r) => setTimeout(r, 0));
+    f.emit('acknowledged', { turnId: 't1' });
+    f.emit('done', { stopReason: 'iteration_limit' });
+    f.end();
+    const final = await turn.done;
+    expect(final.state).toBe('refused');
+    expect(final.refusal?.detail).toMatch(/step limit/);
+  });
+
+  it.each([
+    ['every tool applied', 'applied', [{ toolName: 'a', ok: true }, { toolName: 'b', ok: true }]],
+    ['some applied, some refused', 'partially_applied', [{ toolName: 'a', ok: true }, { toolName: 'b', ok: false, reason: 'needs_confirmation' }]],
+    ['every tool refused', 'refused', [{ toolName: 'a', ok: false, reason: 'needs_confirmation' }]],
+    ['no tool was called', 'applied', []],
+  ] as const)('a done turn where %s is recorded as %s', (_label, expected, toolCalls) => {
+    expect(commandOutcome(view({ toolCalls: [...toolCalls] })).outcome).toBe(expected);
+  });
+
+  it('a refused turn keeps its reason', () => {
+    expect(commandOutcome(view({ state: 'refused', refusal: { reason: 'assistant_unavailable', detail: 'x' } }))).toEqual({ outcome: 'refused', reason: 'assistant_unavailable' });
+  });
+
+  it('keeps every unfinished turn visible, and only limits finished ones', () => {
+    const running = view({ commandId: 'slow', state: 'running' });
+    const finished = Array.from({ length: 8 }, (_, i) => view({ commandId: `f${String(i)}` }));
+    const shown = visibleTurns([...finished, running]);
+    expect(shown.map((t) => t.commandId)).toContain('slow');
+    expect(shown.filter((t) => t.state === 'done')).toHaveLength(MAX_FINISHED_SHOWN);
   });
 });
