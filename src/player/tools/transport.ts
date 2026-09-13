@@ -1,7 +1,7 @@
 import { REFUSAL_REASON } from '../../vocab/refusal-reasons.ts';
 import { ok, refuse, type ToolResult } from '../../mcp/result.ts';
 import { PLAYER_STATE, type PlayerState } from '../../vocab/player-states.ts';
-import { playerState, type YouTubePlayer } from '../player.ts';
+import { isEmbeddedPlayer, playerState, type YouTubePlayer } from '../player.ts';
 import { gateForAd, type AdState } from '../ad-gate.ts';
 import { settleUntil } from '../readback.ts';
 
@@ -48,7 +48,12 @@ export async function play(p: YouTubePlayer, ctx: PlaybackContext, timeoutMs?: n
     }
     if (playerState(p) === PLAYER_STATE.playing) return ok(snapshot(p));
     p.playVideo();
-    return verified(p, PLAYER_STATE.playing, 'start playback', timeoutMs);
+    if (!isEmbeddedPlayer(p)) return verified(p, PLAYER_STATE.playing, 'start playback', timeoutMs);
+    // The browser may refuse without a state change ever arriving; waiting out
+    // the deadline would report a vaguer reason than the one that is known.
+    await settleUntil(() => playerState(p) === PLAYER_STATE.playing || p.autoplayBlocked(), timeoutMs);
+    if (p.autoplayBlocked()) return refuseBlocked();
+    return verified(p, PLAYER_STATE.playing, 'start playback', 0);
   });
 }
 
@@ -80,3 +85,12 @@ export async function stop(p: YouTubePlayer, ctx: PlaybackContext, timeoutMs?: n
       : refuse(REFUSAL_REASON.refusedByPlayer, `Asked the player to stop; it is still ${playerState(p)}.`);
   });
 }
+
+/** The browser refused to start playback without a person's gesture (R10). */
+export function refuseBlocked(): ToolResult<never> {
+  return refuse(
+    REFUSAL_REASON.autoplayBlocked,
+    'The browser blocked playback from starting on its own. Press play on the video to start it.',
+  );
+}
+

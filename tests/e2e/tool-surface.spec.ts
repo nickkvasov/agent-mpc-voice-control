@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures/player.ts';
 import { TOOL } from '../../src/vocab/tool-names.ts';
 import { VIEW_TOOLS } from '../../src/mcp/tool-descriptions.ts';
 

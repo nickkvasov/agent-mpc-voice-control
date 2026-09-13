@@ -9,6 +9,7 @@ import { BULK_THRESHOLD, TOOL, type ToolName } from '../vocab/tool-names.ts';
  */
 export const TOOL_DESCRIPTIONS: Readonly<Record<ToolName, string>> = {
   [TOOL.playbackPlay]: 'Start or resume playback of the loaded video. Refuses when nothing is loaded.',
+  [TOOL.playbackPlayVideo]: 'Load a video by its id and play it. Reports what the player confirmed: playing, blocked by the browser, or the specific reason the video cannot play.',
   [TOOL.playbackPause]: 'Pause playback. Refuses, saying so, when nothing is playing.',
   [TOOL.playbackStop]: 'Stop playback.',
   [TOOL.playbackSeek]: 'Seek to an absolute position, or by a relative number of seconds (negative goes back). Reports the position actually reached, which may be clamped.',
@@ -45,7 +46,7 @@ export const TOOL_DESCRIPTIONS: Readonly<Record<ToolName, string>> = {
 /** Which tools each view declares. A view off screen declares none of them (FR-035). */
 export const VIEW_TOOLS = {
   player: [
-    TOOL.playbackPlay, TOOL.playbackPause, TOOL.playbackStop, TOOL.playbackSeek, TOOL.playbackSeekToChapter,
+    TOOL.playbackPlay, TOOL.playbackPlayVideo, TOOL.playbackPause, TOOL.playbackStop, TOOL.playbackSeek, TOOL.playbackSeekToChapter,
     TOOL.playbackSetRate, TOOL.playbackSetVolume, TOOL.playbackSetMuted, TOOL.playbackSetCaptions,
     TOOL.playbackNext, TOOL.playbackPrevious, TOOL.playbackGetState,
   ],

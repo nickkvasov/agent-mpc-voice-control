@@ -22,7 +22,11 @@ export interface Readback<T> {
   readonly unsettled: boolean;
 }
 
-export const SETTLE_TIMEOUT_MS = 400;
+/**
+ * FR-013's budget. A real `play` passes through `buffering` and routinely
+ * needs longer than the 400ms this was while the stand-in answered at once.
+ */
+export const SETTLE_TIMEOUT_MS = 1000;
 const POLL_MS = 25;
 
 async function settle<T>(read: () => T, wanted: T, timeoutMs: number): Promise<{ applied: T; settled: boolean }> {

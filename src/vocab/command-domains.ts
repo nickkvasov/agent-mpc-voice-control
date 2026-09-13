@@ -38,6 +38,7 @@ const NONE = [] as const;
  */
 export const TOOL_DOMAINS: Readonly<Record<ToolName, Declared>> = {
   [TOOL.playbackPlay]: P,
+  [TOOL.playbackPlayVideo]: P,
   [TOOL.playbackPause]: P,
   [TOOL.playbackStop]: P,
   [TOOL.playbackSeek]: P,

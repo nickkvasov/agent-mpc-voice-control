@@ -9,7 +9,7 @@ const ALL = Object.values(TOOL) as ToolName[];
 const V = 'M7lc1UVf-VE';
 /** One valid business input per tool, from contracts/mcp-tools.md. */
 const SAMPLES: Readonly<Record<ToolName, readonly Record<string, unknown>[]>> = {
-  [TOOL.playbackPlay]: [{}], [TOOL.playbackPause]: [{}], [TOOL.playbackStop]: [{}],
+  [TOOL.playbackPlay]: [{}], [TOOL.playbackPlayVideo]: [{ videoId: V }], [TOOL.playbackPause]: [{}], [TOOL.playbackStop]: [{}],
   [TOOL.playbackSeek]: [{ mode: 'absolute', seconds: 90 }, { mode: 'relative', seconds: -10 }],
   [TOOL.playbackSeekToChapter]: [{ query: 'intro' }],
   [TOOL.playbackSetRate]: [{ rate: 1.5 }], [TOOL.playbackSetVolume]: [{ volume: 40 }],

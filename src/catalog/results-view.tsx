@@ -1,3 +1,4 @@
+import { AVAILABILITY, type Availability } from '../vocab/availability.ts';
 import { DeclaredTools } from '../mcp/declared-tools.tsx';
 import { VIEW_TOOLS } from '../mcp/tool-descriptions.ts';
 import type { ResultSet } from './results.ts';
@@ -26,6 +27,21 @@ export interface ResultsViewProps {
   readonly onPlay: (videoId: string) => void;
 }
 
+const AVAILABILITY_LABEL: Readonly<Record<Availability, string>> = {
+  [AVAILABILITY.available]: 'available',
+  [AVAILABILITY.removed]: 'removed',
+  [AVAILABILITY.private]: 'private',
+  [AVAILABILITY.ageRestricted]: 'age-restricted',
+  [AVAILABILITY.regionBlocked]: 'not available in this region',
+  [AVAILABILITY.embeddingDisallowed]: 'its owner does not allow embedding',
+  [AVAILABILITY.unknown]: 'not known',
+};
+
+/** Under a minute in seconds: "0 min" for an 8-second video read like the old zero-duration defect (Gate B). */
+function formatDuration(seconds: number): string {
+  return seconds < 60 ? `${String(Math.round(seconds))} s` : `${String(Math.round(seconds / 60))} min`;
+}
+
 export function ResultsView({ results, quota, onQueue, onPlay, onAddToCollection }: ResultsViewProps) {
   return (
     <section data-testid="results" style={{ margin: '0.5rem 0' }}>
@@ -51,8 +67,15 @@ export function ResultsView({ results, quota, onQueue, onPlay, onAddToCollection
             <li key={v.videoId} data-testid="result-item">
               {v.title}{' '}
               <small>
-                ({isUnknown(v.durationSeconds) ? 'length not yet known' : `${String(Math.round((v.durationSeconds as number) / 60))} min`})
+                ({isUnknown(v.durationSeconds) ? 'length not yet known' : formatDuration(v.durationSeconds as number)})
               </small>{' '}
+              {v.availability !== AVAILABILITY.available && v.availability !== AVAILABILITY.unknown && (
+                // FR-036: learned from the player when it refused this video — shown
+                // where the person would try it again, not only in the player's status.
+                <small data-testid="result-unavailable" style={{ color: '#a00' }}>
+                  cannot play here: {AVAILABILITY_LABEL[v.availability]}{' '}
+                </small>
+              )}
               <button type="button" onClick={() => onPlay(v.videoId)}>Play</button>{' '}
               <button type="button" onClick={() => onQueue(v.videoId)}>Queue</button>{' '}
               <button type="button" data-testid="add-to-collection" onClick={() => onAddToCollection(v.videoId)}>

@@ -24,7 +24,9 @@ import { EMPTY, type ResultSet } from './catalog/results.ts';
 import type { QuotaView } from './catalog/client.ts';
 import { EMPTY_QUEUE, type QueueState } from './queue/queue.ts';
 import { TOOL, type ToolName } from './vocab/tool-names.ts';
-import type { YouTubePlayer } from './player/player.ts';
+import type { EmbeddedPlayer } from './player/player.ts';
+import { PlayerView } from './player/player-view.tsx';
+import { describePlayerError } from './player/player-errors.ts';
 import type { ToolResult } from './mcp/result.ts';
 import { CommandRegistry, COMMAND_ROUTE, type CommandRoute } from './app/commands.ts';
 import { issueText } from './app/command-intake.ts';
@@ -33,52 +35,30 @@ import { createToolActions, type ToolActions } from './app/tool-actions.ts';
 import { ToolSurfaceProvider } from './mcp/declared-tools.tsx';
 
 
-/**
- * US1: control playback by speaking or typing.
- *
- * The matcher and the (not yet connected) agent both reach the player through
- * the same tool functions, and the buttons call the same ones — which is what
- * makes conversational and manual control interchangeable (Principle I).
- *
- * The player here is a local stand-in so the slice is demonstrable before the
- * IFrame embed lands; every tool above it is the real one.
- */
-function createLocalPlayer(onChange: () => void): YouTubePlayer {
-  let state = 5, time = 0, rate = 1, volume = 50, muted = false;
-  const options = new Map<string, unknown>();
-  const touched = <T,>(v: T): T => {
-    onChange();
-    return v;
-  };
-  return {
-    playVideo: () => touched((state = 1)),
-    pauseVideo: () => touched((state = 2)),
-    stopVideo: () => touched((state = 0)),
-    seekTo: (s) => touched((time = s)),
-    getCurrentTime: () => time,
-    getDuration: () => 600,
-    setPlaybackRate: (r) => touched((rate = r)),
-    getPlaybackRate: () => rate,
-    getAvailablePlaybackRates: () => [0.5, 1, 1.25, 1.5, 2],
-    setVolume: (v) => touched((volume = v)),
-    getVolume: () => volume,
-    mute: () => touched((muted = true)),
-    unMute: () => touched((muted = false)),
-    isMuted: () => muted,
-    getPlayerState: () => state,
-    loadModule: () => {},
-    unloadModule: () => {},
-    setOption: (m, o, v) => touched(options.set(`${m}.${o}`, v)),
-    getOption: (m, o) => options.get(`${m}.${o}`),
-  } as YouTubePlayer;
-}
+/** YouTube's code for "playing"; the vocabulary maps it, the tick only needs the raw value. */
+const PLAYING_CODE = 1;
+/** Well inside FR-013's one second. */
+const POSITION_TICK_MS = 500;
 
 export function App() {
   const [, forceRender] = useState(0);
   const bump = useCallback(() => forceRender((n) => n + 1), []);
-  const player = useRef<YouTubePlayer | null>(null);
-  player.current ??= createLocalPlayer(bump);
-  const p = player.current;
+  /** The embedded player, once ready (T116). Null until then — never a stand-in. */
+  const playerRef = useRef<EmbeddedPlayer | null>(null);
+  const [playerStatus, setPlayerStatus] = useState<string | null>(null);
+  const p = playerRef.current;
+
+  /**
+   * While a video plays the position changes with no player event at all, so
+   * the controls re-read it on a short tick — only while playing. Found at
+   * Gate B on the real embed: three seconds in, the controls still read 0s.
+   */
+  useEffect(() => {
+    const tick = setInterval(() => {
+      if (playerRef.current?.getPlayerState() === PLAYING_CODE) bump();
+    }, POSITION_TICK_MS);
+    return () => clearInterval(tick);
+  }, [bump]);
 
 
   const [heard, setHeard] = useState<string | null>(null);
@@ -254,8 +234,16 @@ export function App() {
   actionsRef.current ??= createToolActions({
     recorder,
     scheduler: scheduler.current,
-    player: () => p,
-    playback: () => ({ adPlaying: false, hasVideo: true }),
+    player: () => playerRef.current,
+    playback: () => ({ adPlaying: false, hasVideo: playerRef.current?.loadedVideoId() != null }),
+    markUnavailable: (videoId, availability) => {
+      const next = {
+        ...resultsRef.current,
+        items: resultsRef.current.items.map((v) => (v.videoId === videoId ? { ...v, availability } : v)),
+      };
+      resultsRef.current = next;
+      setResults(next);
+    },
     results: {
       get: () => resultsRef.current,
       set: (next) => {
@@ -410,7 +398,7 @@ export function App() {
     return mine === undefined ? v : { ...v, label: mine.label, tags: mine.tags };
   });
 
-  const captions = p.getOption('captions', 'track');
+  const captions = p?.getOption('captions', 'track');
   const track = typeof captions === 'object' && captions !== null
     ? String((captions as Record<string, unknown>)['languageCode'] ?? '')
     : '';
@@ -453,7 +441,11 @@ export function App() {
       <ResultsView
         results={results}
         quota={quota}
-        onPlay={(id) => setOutcome(`Would play ${id} once the player embed lands.`)}
+        onPlay={(id) => {
+          const title = results.items.find((v) => v.videoId === id)?.title ?? id;
+          setPlayerStatus(null);
+          void perform(TOOL.playbackPlayVideo, { videoId: id }, () => `Playing "${title}".`);
+        }}
         onAddToCollection={(id) => {
           // Captured at CLICK time. Reading it at execution time sent a video
           // to whichever collection happened to be selected when the queue
@@ -560,15 +552,25 @@ export function App() {
           }}
         />
       )}
+      <PlayerView
+        status={playerStatus}
+        onReady={(player) => {
+          playerRef.current = player;
+          bump();
+        }}
+        onChange={bump}
+        onError={(code) => setPlayerStatus(describePlayerError(code).message)}
+      />
       {/* Controls read state through the shared mapper, so they cannot disagree
-          with what the tools reported. */}
+          with what the tools reported. Before the player exists they show nothing
+          playing, which is true. */}
       <Controls
-        state={playerStateFromCode(p.getPlayerState()) ?? PLAYER_STATE.unstarted}
-        positionSeconds={p.getCurrentTime()}
-        durationSeconds={p.getDuration()}
-        rate={p.getPlaybackRate()}
-        volume={p.getVolume()}
-        muted={p.isMuted()}
+        state={(p === null ? undefined : playerStateFromCode(p.getPlayerState())) ?? PLAYER_STATE.unstarted}
+        positionSeconds={p?.getCurrentTime() ?? 0}
+        durationSeconds={p?.getDuration() ?? 0}
+        rate={p?.getPlaybackRate() ?? 1}
+        volume={p?.getVolume() ?? 0}
+        muted={p?.isMuted() ?? false}
         captionsTrack={track === '' ? null : track}
         onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.manual)}
       />

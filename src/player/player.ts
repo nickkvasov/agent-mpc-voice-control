@@ -29,6 +29,24 @@ export interface YouTubePlayer {
   getOption(module: string, option: string): unknown;
 }
 
+/**
+ * What the embedded player knows beyond the IFrame method surface: which video
+ * it was asked to load, and the two ways a request ends without playback —
+ * the browser blocking autoplay, and a player error (research R10).
+ *
+ * Both reset on every new load or play request, so they describe THIS request.
+ */
+export interface EmbeddedPlayer extends YouTubePlayer {
+  loadVideoById(videoId: string): void;
+  loadedVideoId(): string | null;
+  autoplayBlocked(): boolean;
+  lastError(): { readonly code: number; readonly videoId: string | null } | null;
+}
+
+export function isEmbeddedPlayer(p: YouTubePlayer): p is EmbeddedPlayer {
+  return typeof (p as Partial<EmbeddedPlayer>).autoplayBlocked === 'function';
+}
+
 export interface CaptionTrack {
   readonly languageCode: string;
   readonly displayName: string;

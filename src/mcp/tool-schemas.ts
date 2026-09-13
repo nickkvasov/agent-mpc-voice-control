@@ -33,6 +33,7 @@ const timestamp = { type: 'number', minimum: 0 };
 
 export const BUSINESS_SCHEMAS: Readonly<Record<ToolName, ObjectSchema>> = {
   [TOOL.playbackPlay]: obj(),
+  [TOOL.playbackPlayVideo]: obj({ videoId }, ['videoId']),
   [TOOL.playbackPause]: obj(),
   [TOOL.playbackStop]: obj(),
   [TOOL.playbackSeek]: obj({ mode: { enum: ['absolute', 'relative'] }, seconds: { type: 'number' } }, ['mode', 'seconds']),

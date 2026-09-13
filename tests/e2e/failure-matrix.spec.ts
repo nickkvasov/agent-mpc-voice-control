@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, loadVideo, playerReady, test } from './fixtures/player.ts';
 
 /**
  * T087 — quickstart Scenario 5.
@@ -19,6 +20,8 @@ test.describe('failure matrix', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('[data-testid="command-input"]');
+    // Playback rows are about playback, not about the player still loading.
+    await playerReady(page);
   });
 
   test('the assistant being unavailable is SHOWN, and the app still works by hand', async ({ page }) => {
@@ -26,7 +29,10 @@ test.describe('failure matrix', () => {
     await expect(status).toHaveAttribute('data-state', 'unavailable');
     await expect(page.locator('[data-testid="connection-reason"]')).not.toBeEmpty();
     await expect(page.locator('[data-testid="hand-path"]')).toContainText('still works by hand');
-    // And the hand path genuinely works.
+    // And the hand path genuinely works: choose a video, pause it, play it — by hand.
+    await loadVideo(page);
+    await page.click('[data-testid="btn-pause"]');
+    await expect(page.locator('[data-testid="state"]')).toContainText('paused');
     await page.click('[data-testid="btn-play"]');
     await expect(page.locator('[data-testid="state"]')).toContainText('playing');
   });
@@ -37,13 +43,12 @@ test.describe('failure matrix', () => {
     await expect(outcome(page)).toContainText('by hand');
   });
 
-  test('an unbuilt capability says so, and does NOT tell you to open a view that is already open', async ({ page }) => {
-    // This test previously asserted "the player", which was the defect: the
-    // player is right there on screen, so recommending that someone open it
-    // cannot resolve anything (Gate C).
+  test('"next" with nothing queued says so, and does NOT tell you to open a view that is already open', async ({ page }) => {
+    // Was "an unbuilt capability says so" until `next` was built in Phase 10.
+    // The claim it guarded still holds: the player is on screen, so telling
+    // someone to open it cannot resolve anything (Gate C).
     await send(page, 'next');
-    await expect(outcome(page)).toContainText('not available in this build yet');
-    await expect(outcome(page)).toContainText('Nothing was changed');
+    await expect(outcome(page)).toContainText('nothing in the queue');
     await expect(outcome(page)).not.toContainText('Open the player');
   });
 
@@ -58,6 +63,8 @@ test.describe('failure matrix', () => {
   });
 
   test('a quota refusal is stated and leaves loaded results usable', async ({ page }) => {
+    await loadVideo(page);
+    // Registered after loadVideo's search route, so it takes precedence from here.
     await page.route('**/api/catalog/search*', (route) =>
       route.fulfill({
         status: 429,
@@ -69,6 +76,8 @@ test.describe('failure matrix', () => {
     await page.click('[data-testid="search-submit"]');
     await expect(outcome(page)).toContainText('allowance is spent');
     // Playback still works while the catalog is refusing.
+    await page.click('[data-testid="btn-pause"]');
+    await expect(page.locator('[data-testid="state"]')).toContainText('paused');
     await page.click('[data-testid="btn-play"]');
     await expect(page.locator('[data-testid="state"]')).toContainText('playing');
   });

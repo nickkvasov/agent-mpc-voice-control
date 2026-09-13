@@ -9,7 +9,7 @@ import { applyCollectionUndo } from '../../src/curation/restore.ts';
 import { makeVideoReference, type VideoReference } from '../../src/store/video-reference.ts';
 import { ok } from '../../src/mcp/result.ts';
 import { add as queueAdd, EMPTY_QUEUE, type QueueState } from '../../src/queue/queue.ts';
-import type { YouTubePlayer } from '../../src/player/player.ts';
+import type { EmbeddedPlayer } from '../../src/player/player.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 import { TOOL } from '../../src/vocab/tool-names.ts';
 
@@ -25,7 +25,8 @@ function slowPlayer() {
     setVolume: () => {}, getVolume: () => 50, mute: () => {}, unMute: () => {}, isMuted: () => false,
     getPlayerState: () => state, loadModule: () => {}, unloadModule: () => {},
     setOption: () => {}, getOption: () => undefined,
-  } as unknown as YouTubePlayer;
+    loadVideoById: () => {}, loadedVideoId: () => 'M7lc1UVf-VE', autoplayBlocked: () => false, lastError: () => null,
+  } as unknown as EmbeddedPlayer;
   return { p, releaseSeek: () => pendingSeeks.splice(0).forEach((f) => { f(); }) };
 }
 
@@ -52,6 +53,7 @@ function setup(answers: (string | null)[] = [], opts: SetupOptions = {}) {
   const deps: ToolActionDeps = {
     recorder, scheduler,
     player: () => player.p,
+    markUnavailable: () => {},
     playback: () => ({ adPlaying: false, hasVideo: true }),
     results: { get: () => results, set: (n) => { results = n; } },
     videos: () => results.items.map((v) => {

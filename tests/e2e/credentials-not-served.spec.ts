@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/player.ts';
 import { rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 

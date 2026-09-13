@@ -346,6 +346,28 @@ against the real code, and fails for every earlier rule.
 - **Harness again.** A stray `cat >` with no heredoc blocked a break-it run on stdin for 400 seconds and
   looked like a hanging test. Before trusting a stuck run, check what is actually running.
 
+### 2026-09-14 — Phase 10: what the real embed showed that the fake could not
+
+The fake IFrame API is trusted only for what the live suite also observes. Gate B against the real
+embed then found two defects the deterministic suite could not, because the fake shared them:
+
+- **The position froze while playing.** The controls re-rendered only on player events, and a playing
+  video emits none. The fake's clock never advanced either, so "0s while playing" matched it exactly.
+  The fake now advances time while playing, and the test fails without the fix.
+- **Short videos read "(0 min)".** 8 seconds rounds to zero minutes — on screen it looked like the old
+  zero-duration defect. Every fixture used long videos.
+
+**Also found.** Three e2e specs imported `test` alongside `type Page`, so a `sed` over the imports
+missed them, and they had been loading the real YouTube API from the network in the "deterministic"
+suite. Playwright gives the most recently registered route precedence: a catch-all abort registered
+after the fake's route aborted the fake itself — the page then showed the loader's own honest refusal
+("The YouTube player script could not be loaded"), which is how it was spotted.
+
+**Standing rules.**
+- A fake is wrong wherever it is simpler than the real thing in a way the UI depends on (time, events).
+  Look for what the fake never does, not only what it does differently.
+- After a bulk import rewrite, grep for the files it did NOT change.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

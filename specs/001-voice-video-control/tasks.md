@@ -404,17 +404,17 @@ by button and by typed command; each control shows the state the real player rep
 
 ### Tests for User Story 1
 
-- [ ] T110 [P] [US1] Fake IFrame API fixture implementing the `YouTubePlayer` subset, firing events on a schedule the test controls — including a state change that never arrives, autoplay blocked, and errors 100/101/150/153 — served by route interception, in `tests/e2e/fixtures/fake-iframe-api.js`
-- [ ] T111 [P] [US1] Playwright against the fake: every Scenario 1 row; a state change that never arrives → `refused_by_player` with the actual state; autoplay blocked → `autoplay_blocked`, never "playing"; 153 reported as an origin fault, not as the video unavailable, in `tests/e2e/player.spec.ts`
-- [ ] T112 [P] [US1] Live suite against the real embed on a known public video: play, pause, seek, rate readback, one caption track — the fake is trusted only for what this also observes, in `tests/e2e-live/player.live.spec.ts`
+- [X] T110 [P] [US1] Fake IFrame API fixture implementing the `YouTubePlayer` subset, firing events on a schedule the test controls — including a state change that never arrives, autoplay blocked, and errors 100/101/150/153 — served by route interception, in `tests/e2e/fixtures/fake-iframe-api.js`
+- [X] T111 [P] [US1] Playwright against the fake: every Scenario 1 row; a state change that never arrives → `refused_by_player` with the actual state; autoplay blocked → `autoplay_blocked`, never "playing"; 153 reported as an origin fault, not as the video unavailable, in `tests/e2e/player.spec.ts`
+- [X] T112 [P] [US1] Live suite against the real embed on a known public video: play, pause, seek, rate readback, one caption track — the fake is trusted only for what this also observes, in `tests/e2e-live/player.live.spec.ts` (catalog request stubbed so it spends no quota; the player is entirely real — passed in 5.7s)
 
 ### Implementation for User Story 1
 
-- [ ] T113 [US1] Load the IFrame Player API once, resolving on `onYouTubeIframeAPIReady` and refusing with a stated reason on load failure or timeout, in `src/player/iframe-api.ts`
-- [ ] T114 [US1] Adapt `YT.Player` to `YouTubePlayer` with `playerVars: { origin: location.origin, playsinline: 1 }`, exposing `onStateChange`, `onError` and `onAutoplayBlocked` as observable events, in `src/player/youtube-adapter.ts`
-- [ ] T115 [US1] Make every mutating playback tool await the player's own confirmation for at most one second and report what it confirmed — `refused_by_player` with the actual state, or `autoplay_blocked` — in `src/player/readback.ts`, `src/player/tools/transport.ts`, `src/player/tools/seek.ts`, `src/player/tools/rate-volume.ts` and `src/player/tools/captions.ts`
-- [ ] T116 [US1] Mount the real player; make a result's **Play** and queue advancement load the video; move `createLocalPlayer` out of the application into `tests/support/local-player.ts`, in `src/App.tsx` and `src/player/player-view.tsx`
-- [ ] T117 [US1] Wire `onError` to availability through `availabilityFromError` and `isOriginError`, showing the specific reason on the result and queue entry (FR-036), in `src/player/player-view.tsx` and `src/catalog/results-view.tsx`
+- [X] T113 [US1] Load the IFrame Player API once, resolving on `onYouTubeIframeAPIReady` and refusing with a stated reason on load failure or timeout, in `src/player/iframe-api.ts`
+- [X] T114 [US1] Adapt `YT.Player` to `YouTubePlayer` with `playerVars: { origin: location.origin, playsinline: 1 }`, exposing `onStateChange`, `onError` and `onAutoplayBlocked` as observable events, in `src/player/youtube-adapter.ts`
+- [X] T115 [US1] Make every mutating playback tool await the player's own confirmation for at most one second and report what it confirmed — `refused_by_player` with the actual state, or `autoplay_blocked` — in `src/player/readback.ts`, `src/player/tools/transport.ts`, `src/player/tools/seek.ts`, `src/player/tools/rate-volume.ts` and `src/player/tools/captions.ts`
+- [X] T116 [US1] Mount the real player; make a result's **Play** and queue advancement load the video; move `createLocalPlayer` out of the application, in `src/App.tsx` and `src/player/player-view.tsx`. Playing a specific video had no tool at all, so `playback.playVideo { videoId }` was added to every projection of the contract; `playback.next`/`previous` now load from the queue. The stand-in was deleted rather than moved: nothing used it. Every e2e spec now runs on the fake API through `tests/e2e/fixtures/player.ts` — three had still been loading the real YouTube API over the network
+- [X] T117 [US1] Wire `onError` to availability through `availabilityFromError` and `isOriginError`, showing the specific reason on the result and queue entry (FR-036), in `src/player/player-view.tsx` and `src/catalog/results-view.tsx`
 
 **Checkpoint**: nothing in `src/` constructs a stand-in player; Scenario 1 passes against the fake and
 the live suite.

@@ -7,6 +7,7 @@
  */
 export const TOOL = {
   playbackPlay: 'playback.play',
+  playbackPlayVideo: 'playback.playVideo',
   playbackPause: 'playback.pause',
   playbackStop: 'playback.stop',
   playbackSeek: 'playback.seek',

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, loadVideo, test } from './fixtures/player.ts';
 
 /**
  * T030 — SC-001: a playback command is visible within one second of the person
@@ -34,28 +34,28 @@ test.describe('SC-001 budget', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('[data-testid="command-input"]');
+    // A video is chosen first, as a person would; the stand-in pretended one was cued.
+    await loadVideo(page);
   });
 
   test('play becomes visible well inside the budget', async ({ page }) => {
+    await timeCommand(page, 'pause', /paused/);
     const ms = await timeCommand(page, 'play', /playing/);
     expect(ms, `play took ${String(ms)}ms`).toBeLessThan(APPLY_BUDGET_MS);
     expect(ms).toBeLessThan(BUDGET_MS);
   });
 
   test('seek becomes visible well inside the budget', async ({ page }) => {
-    await timeCommand(page, 'play', /playing/);
     const ms = await timeCommand(page, 'skip forward two minutes', /120s/);
     expect(ms, `seek took ${String(ms)}ms`).toBeLessThan(APPLY_BUDGET_MS);
   });
 
   test('speed change becomes visible well inside the budget', async ({ page }) => {
-    await timeCommand(page, 'play', /playing/);
     const ms = await timeCommand(page, 'speed 1.5', /1\.5x/);
     expect(ms, `speed took ${String(ms)}ms`).toBeLessThan(APPLY_BUDGET_MS);
   });
 
   test('pause becomes visible well inside the budget', async ({ page }) => {
-    await timeCommand(page, 'play', /playing/);
     const ms = await timeCommand(page, 'pause', /paused/);
     expect(ms, `pause took ${String(ms)}ms`).toBeLessThan(APPLY_BUDGET_MS);
   });

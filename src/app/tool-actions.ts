@@ -15,13 +15,18 @@ import {
 import { planTags, previewTags, setLabel } from '../curation/annotations.ts';
 import { resolveConfirmation, resolveCountedConfirmation } from '../mcp/confirmation-resolver.ts';
 import { ok, refuse, type ToolResult } from '../mcp/result.ts';
-import { refuseUnsupportedCapability } from '../mcp/tool-availability.ts';
 import { pause, play, stop, type PlaybackContext } from '../player/tools/transport.ts';
 import { seek } from '../player/tools/seek.ts';
 import { setMuted, setRate, setVolume } from '../player/tools/rate-volume.ts';
 import { setCaptions } from '../player/tools/captions.ts';
 import { seekToChapter } from '../player/tools/chapters.ts';
-import { playerState, type YouTubePlayer } from '../player/player.ts';
+import { playerState, type EmbeddedPlayer } from '../player/player.ts';
+import { refuseBlocked } from '../player/tools/transport.ts';
+import { describePlayerError } from '../player/player-errors.ts';
+import { settleUntil } from '../player/readback.ts';
+import { step } from '../player/tools/navigation.ts';
+import { PLAYER_STATE } from '../vocab/player-states.ts';
+import { AVAILABILITY, type Availability } from '../vocab/availability.ts';
 import { add as queueAdd, clear as queueClear, removeEntries, removeVideo, reorder, sorted, type QueueState } from '../queue/queue.ts';
 import { UNKNOWN, type VideoReference } from '../store/video-reference.ts';
 import { domainsOf, TOOL_DOMAINS, PER_ENTRY, type CommandDomain } from '../vocab/command-domains.ts';
@@ -52,7 +57,10 @@ type Annotations = ReadonlyMap<string, { label: string | null; tags: readonly st
 export interface ToolActionDeps {
   readonly recorder: ActivityRecorder;
   readonly scheduler: DomainScheduler;
-  readonly player: () => YouTubePlayer;
+  /** Null until the embedded player is ready. */
+  readonly player: () => EmbeddedPlayer | null;
+  /** Records that a video cannot play, with the specific reason (FR-036). */
+  readonly markUnavailable: (videoId: string, availability: Availability) => void;
   readonly playback: () => PlaybackContext;
   readonly results: { get(): ResultSet; set(next: ResultSet): void };
   /** Catalog facts with the person's annotations laid over them. */
@@ -124,43 +132,88 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
   const countedAbove = (count: number, question: string): number | undefined =>
     count > BULK_THRESHOLD && resolveCountedConfirmation(deps.ask(question), count) === 'confirmed' ? count : undefined;
 
-  const player = (): YouTubePlayer => deps.player();
+  /** How long a video may take to load and start, over a real network. */
+  const LOAD_TIMEOUT_MS = 5000;
+
+  /** Every playback tool refuses, with the reason, until the player exists. */
+  const withPlayer = <T>(body: (p: EmbeddedPlayer) => Promise<ToolResult<T>> | ToolResult<T>) => (): Promise<ToolResult<T>> | ToolResult<T> => {
+    const p = deps.player();
+    return p === null
+      ? refuse(REFUSAL_REASON.capabilityUnsupported, 'The video player is still loading, so nothing can be played or controlled yet.')
+      : body(p);
+  };
+
+  /** Loads a video and reports what the player confirmed — playing, blocked, or why it cannot play. */
+  const loadAndConfirm = async (p: EmbeddedPlayer, videoId: string) => {
+    p.loadVideoById(videoId);
+    await settleUntil(
+      () => playerState(p) === PLAYER_STATE.playing || p.autoplayBlocked() || p.lastError() !== null,
+      LOAD_TIMEOUT_MS,
+    );
+    const error = p.lastError();
+    if (error !== null) {
+      const described = describePlayerError(error.code);
+      if (described.availability !== null) deps.markUnavailable(videoId, described.availability);
+      return refuse(
+        described.availability === null ? REFUSAL_REASON.capabilityUnsupported : REFUSAL_REASON.unavailableVideo,
+        described.message,
+      );
+    }
+    if (p.autoplayBlocked()) return refuseBlocked();
+    if (playerState(p) !== PLAYER_STATE.playing) {
+      return refuse(REFUSAL_REASON.refusedByPlayer, `Asked the player to play ${videoId}; after ${String(LOAD_TIMEOUT_MS / 1000)} seconds it is still ${playerState(p)}.`);
+    }
+    return ok({ videoId, state: playerState(p) });
+  };
+
+  const titleOf = (videoId: string): string => deps.videos().find((v) => v.videoId === videoId)?.title ?? videoId;
+
+  const navigate = (direction: 1 | -1) => async (p: EmbeddedPlayer) => {
+    const items = sorted(deps.queue.get().items).map((e) => ({
+      videoId: e.videoId,
+      title: titleOf(e.videoId),
+      availability: deps.videos().find((v) => v.videoId === e.videoId)?.availability ?? AVAILABILITY.unknown,
+    }));
+    const current = p.loadedVideoId();
+    const at = current === null ? -1 : items.findIndex((i) => i.videoId === current);
+    const next = step(items, direction === 1 ? at : (at === -1 ? items.length : at), direction);
+    if (!next.ok) return next;
+    const played = await loadAndConfirm(p, next.value.videoId);
+    return played.ok ? ok({ ...played.value, skipped: next.value.skipped }) : played;
+  };
 
   const actions: ToolActions = {
     // ── playback ──────────────────────────────────────────────────────────
-    [TOOL.playbackPlay]: (c, i, sig) => run(sig, TOOL.playbackPlay, c, i, 'Play', () => play(player(), deps.playback())),
-    [TOOL.playbackPause]: (c, i, sig) => run(sig, TOOL.playbackPause, c, i, 'Pause', () => pause(player(), deps.playback())),
-    [TOOL.playbackStop]: (c, i, sig) => run(sig, TOOL.playbackStop, c, i, 'Stop', () => stop(player(), deps.playback())),
+    [TOOL.playbackPlay]: (c, i, sig) => run(sig, TOOL.playbackPlay, c, i, 'Play', withPlayer((p) => play(p, deps.playback()))),
+    [TOOL.playbackPause]: (c, i, sig) => run(sig, TOOL.playbackPause, c, i, 'Pause', withPlayer((p) => pause(p, deps.playback()))),
+    [TOOL.playbackStop]: (c, i, sig) => run(sig, TOOL.playbackStop, c, i, 'Stop', withPlayer((p) => stop(p, deps.playback()))),
     [TOOL.playbackSeek]: (c, i, sig) => {
       const mode = i['mode'] === 'absolute' ? 'absolute' : 'relative';
       const seconds = num(i['seconds']) ?? 0;
       const label = mode === 'absolute' ? `Seek to ${String(seconds)}s` : `Seek ${seconds >= 0 ? 'forward' : 'back'} ${String(Math.abs(seconds))}s`;
-      return run(sig, TOOL.playbackSeek, c, i, label, () => seek(player(), deps.playback(), mode, seconds));
+      return run(sig, TOOL.playbackSeek, c, i, label, withPlayer((p) => seek(p, deps.playback(), mode, seconds)));
     },
     [TOOL.playbackSeekToChapter]: (c, i, sig) =>
       // The current video's chapters are not known until the real player
       // reports which video is loaded (T116); until then this refuses with the
       // reason rather than guessing a position.
-      run(sig, TOOL.playbackSeekToChapter, c, i, `Go to the chapter "${str(i['query'])}"`, () =>
-        seekToChapter(player(), UNKNOWN, str(i['query']))),
+      run(sig, TOOL.playbackSeekToChapter, c, i, `Go to the chapter "${str(i['query'])}"`, withPlayer((p) =>
+        seekToChapter(p, UNKNOWN, str(i['query'])))),
     [TOOL.playbackSetRate]: (c, i, sig) =>
-      run(sig, TOOL.playbackSetRate, c, i, `Set speed to ${String(num(i['rate']))}x`, () => setRate(player(), num(i['rate']) ?? 1)),
+      run(sig, TOOL.playbackSetRate, c, i, `Set speed to ${String(num(i['rate']))}x`, withPlayer((p) => setRate(p, num(i['rate']) ?? 1))),
     [TOOL.playbackSetVolume]: (c, i, sig) =>
-      run(sig, TOOL.playbackSetVolume, c, i, `Set volume to ${String(num(i['volume']))}`, () => setVolume(player(), num(i['volume']) ?? 0)),
+      run(sig, TOOL.playbackSetVolume, c, i, `Set volume to ${String(num(i['volume']))}`, withPlayer((p) => setVolume(p, num(i['volume']) ?? 0))),
     [TOOL.playbackSetMuted]: (c, i, sig) =>
-      run(sig, TOOL.playbackSetMuted, c, i, i['muted'] === true ? 'Mute' : 'Unmute', () => setMuted(player(), i['muted'] === true)),
+      run(sig, TOOL.playbackSetMuted, c, i, i['muted'] === true ? 'Mute' : 'Unmute', withPlayer((p) => setMuted(p, i['muted'] === true))),
     [TOOL.playbackSetCaptions]: (c, i, sig) =>
-      run(sig, TOOL.playbackSetCaptions, c, i, i['enabled'] === true ? 'Turn captions on' : 'Turn captions off', () =>
-        setCaptions(player(), i['track'] === undefined ? { enabled: i['enabled'] === true } : { enabled: i['enabled'] === true, track: str(i['track']) })),
-    [TOOL.playbackNext]: (c, i, sig) =>
-      // The stand-in player cannot load a queued video; the real player does
-      // (T116). Refused with that reason until then, never a pretend success.
-      run(sig, TOOL.playbackNext, c, i, 'Next video', () => refuseUnsupportedCapability(TOOL.playbackNext)),
-    [TOOL.playbackPrevious]: (c, i, sig) =>
-      run(sig, TOOL.playbackPrevious, c, i, 'Previous video', () => refuseUnsupportedCapability(TOOL.playbackPrevious)),
+      run(sig, TOOL.playbackSetCaptions, c, i, i['enabled'] === true ? 'Turn captions on' : 'Turn captions off', withPlayer((p) =>
+        setCaptions(p, i['track'] === undefined ? { enabled: i['enabled'] === true } : { enabled: i['enabled'] === true, track: str(i['track']) }))),
+    [TOOL.playbackPlayVideo]: (c, i, sig) =>
+      run(sig, TOOL.playbackPlayVideo, c, i, `Play "${titleOf(str(i['videoId']))}"`, withPlayer((p) => loadAndConfirm(p, str(i['videoId'])))),
+    [TOOL.playbackNext]: (c, i, sig) => run(sig, TOOL.playbackNext, c, i, 'Next video', withPlayer(navigate(1))),
+    [TOOL.playbackPrevious]: (c, i, sig) => run(sig, TOOL.playbackPrevious, c, i, 'Previous video', withPlayer(navigate(-1))),
     [TOOL.playbackGetState]: (c, i, sig) =>
-      run(sig, TOOL.playbackGetState, c, i, 'Read the player state', () => {
-        const p = player();
+      run(sig, TOOL.playbackGetState, c, i, 'Read the player state', withPlayer((p) => {
         return ok({
           state: playerState(p),
           positionSeconds: p.getCurrentTime(),
@@ -168,8 +221,9 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
           rate: p.getPlaybackRate(),
           volume: p.getVolume(),
           muted: p.isMuted(),
+          videoId: p.loadedVideoId(),
         });
-      }),
+      })),
 
     // ── catalog ───────────────────────────────────────────────────────────
     [TOOL.catalogSearch]: (c, i, sig) => {

@@ -54,6 +54,7 @@ Domain `playback`. Declared by the player view. These are the tools the local ma
 | Tool | Input | Returns | Notes |
 |---|---|---|---|
 | `playback.play` | `{}` | state | `not_playing` if nothing cued |
+| `playback.playVideo` | `{ videoId }` | `{ videoId, state }` | Loads and plays a specific video — what "play the third one" (FR-017) and a result's Play button both need. Reports `autoplay_blocked`, or the specific unavailability reason (FR-036), rather than "playing". Added Phase 10 |
 | `playback.pause` | `{}` | state | |
 | `playback.stop` | `{}` | state | |
 | `playback.seek` | `{ mode: "absolute" \| "relative", seconds: number }` | state | Clamped to duration; returns the position actually reached |
