@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
+import { connect as tcpConnect } from 'node:net';
+import { vi } from 'vitest';
 import { attachGateway, type Gateway } from '../../server/gateway/upgrade.ts';
 import { __resetTickets, mintTicket } from '../../server/ticket/route.ts';
 import { dialPage, type FakeTool } from '../support/fake-page.ts';
@@ -114,4 +116,63 @@ describe('gateway upgrade (T118)', () => {
     expect(closed).toEqual(['session-6/tab-1']);
     expect(gateway?.connectionFor('session-6', 'tab-1')).toBeUndefined();
   });
+
+  it('[Gate C, P1] a malformed upgrade target is refused, and the server keeps serving', async () => {
+    const { origin } = await start();
+    const port = Number(new URL(origin.replace('ws:', 'http:')).port);
+    const response = await new Promise<string>((resolve) => {
+      const socket = tcpConnect(port, '127.0.0.1', () => {
+        socket.write('GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n');
+      });
+      let data = '';
+      socket.on('data', (chunk) => { data += chunk.toString(); });
+      socket.on('close', () => resolve(data));
+      socket.on('error', () => resolve(data));
+    });
+    expect(response).toMatch(/^HTTP\/1\.1 4\d\d/);
+    // Still alive: a real page is admitted afterwards.
+    const dialed = await dialPage(mintTicket(origin, 'session-7', 'tab-1').url, [pause]);
+    expect('page' in dialed).toBe(true);
+    if ('page' in dialed) dialed.page.close();
+  });
+
+  it('[Gate C] a reconnecting tab\'s old connection is withdrawn at once, not published until the new one initializes', async () => {
+    const { origin } = await start({ initializeTimeoutMs: 5000 });
+    const first = await dialPage(mintTicket(origin, 'session-8', 'tab-1').url, [pause]);
+    if (!('page' in first)) throw new Error('refused');
+    await gateway?.waitFor('session-8', 'tab-1', 2000);
+    // A second socket for the same tab that never speaks MCP.
+    const silent = new WebSocket(mintTicket(origin, 'session-8', 'tab-1').url);
+    await new Promise<void>((r) => silent.once('open', () => r()));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(gateway?.connectionFor('session-8', 'tab-1')).toBeUndefined();
+    silent.close();
+  });
+
+  it('[Gate C] a wait that times out leaves nothing behind', async () => {
+    await start();
+    await expect(gateway?.waitFor('never', 'tab-1', 20)).rejects.toThrow();
+    expect(gateway?.pendingWaits()).toBe(0);
+  });
+
+  it('[Gate C] a malformed frame is reported to the operator even with no listener registered', async () => {
+    const { origin } = await start();
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const dialed = await dialPage(mintTicket(origin, 'session-9', 'tab-1').url, [pause]);
+      if (!('page' in dialed)) throw new Error('refused');
+      await gateway?.waitFor('session-9', 'tab-1', 2000);
+      dialed.page.socket.send('{"not":"json-rpc"}');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(written.join('')).toContain('not JSON-RPC');
+      dialed.page.close();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
+

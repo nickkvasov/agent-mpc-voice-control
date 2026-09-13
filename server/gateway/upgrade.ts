@@ -23,6 +23,8 @@ export interface Gateway {
   connectionFor(sessionId: string, tabId: string): PageConnection | undefined;
   /** Resolves once that tab's connection has completed `initialize`. */
   waitFor(sessionId: string, tabId: string, timeoutMs: number): Promise<PageConnection>;
+  /** How many waits are outstanding — observable so abandoned waits can be shown not to accumulate. */
+  pendingWaits(): number;
   onFrameError(listener: (cause: Error) => void): void;
   onClosed(listener: (sessionId: string, tabId: string) => void): void;
   close(): Promise<void>;
@@ -31,8 +33,10 @@ export interface Gateway {
 /** One connection per tab of a session: two tabs never displace each other (Phase 11 Gate B). */
 const keyOf = (sessionId: string, tabId: string): string => JSON.stringify([sessionId, tabId]);
 
-function refuse(socket: Duplex, status: 401 | 404, reason: string): void {
-  socket.write(`HTTP/1.1 ${String(status)} ${status === 401 ? 'Unauthorized' : 'Not Found'}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n${reason}`);
+const STATUS_TEXT = { 400: 'Bad Request', 401: 'Unauthorized', 404: 'Not Found' } as const;
+
+function refuse(socket: Duplex, status: keyof typeof STATUS_TEXT, reason: string): void {
+  socket.write(`HTTP/1.1 ${String(status)} ${STATUS_TEXT[status]}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n${reason}`);
   socket.destroy();
 }
 
@@ -44,8 +48,21 @@ export function attachGateway(http: HttpServer, options: { readonly initializeTi
   const frameErrorListeners: ((cause: Error) => void)[] = [];
   const closedListeners: ((sessionId: string, tabId: string) => void)[] = [];
 
+  // Reported by default: an admitted page sending garbage is a protocol failure an
+  // operator must be able to see, not an event nobody happens to listen for (Gate C).
+  frameErrorListeners.push((cause) => process.stderr.write(`[gateway] ${cause.message}\n`));
+
   http.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = new URL(request.url ?? '/', 'http://gateway');
+    let url: URL;
+    try {
+      url = new URL(request.url ?? '/', 'http://gateway');
+    } catch {
+      // Outside the request handler's error boundary: an unparseable target from
+      // an unauthenticated caller must not be able to throw here and end the
+      // process (Gate C, P1).
+      refuse(socket, 400, 'The request target is not a valid URL.');
+      return;
+    }
     if (url.pathname !== MCP_PATH) {
       refuse(socket, 404, 'Not an MCP endpoint.');
       return;
@@ -62,10 +79,15 @@ export function attachGateway(http: HttpServer, options: { readonly initializeTi
     const key = keyOf(sessionId, tabId);
     const label = `session ${sessionId.slice(0, 8)}…, tab ${tabId.slice(0, 8)}`;
     wss.handleUpgrade(request, socket, head, (ws) => {
-      // The same tab reconnecting replaces its own earlier connection.
+      // The same tab reconnecting replaces its own earlier connection — withdrawn
+      // NOW, not left published until the new one initializes, or a caller gets
+      // a closed connection and its stale tool list (Gate C).
       const previous = sockets.get(key);
       sockets.set(key, ws);
-      if (previous !== undefined) previous.close();
+      if (previous !== undefined) {
+        connections.delete(key);
+        previous.close();
+      }
 
       ws.on('close', () => {
         if (sockets.get(key) !== ws) return;
@@ -105,15 +127,21 @@ export function attachGateway(http: HttpServer, options: { readonly initializeTi
       const existing = connections.get(key);
       if (existing !== undefined) return Promise.resolve(existing);
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`No page connected for that tab within ${String(timeoutMs)}ms.`)), timeoutMs);
-        const list = waiters.get(key) ?? [];
-        list.push((c) => {
+        const waiter = (c: PageConnection): void => {
           clearTimeout(timer);
           resolve(c);
-        });
-        waiters.set(key, list);
+        };
+        const timer = setTimeout(() => {
+          // Removed on timeout: a wait for a tab that never connects must not stay behind (Gate C).
+          const list = (waiters.get(key) ?? []).filter((w) => w !== waiter);
+          if (list.length === 0) waiters.delete(key);
+          else waiters.set(key, list);
+          reject(new Error(`No page connected for that tab within ${String(timeoutMs)}ms.`));
+        }, timeoutMs);
+        waiters.set(key, [...(waiters.get(key) ?? []), waiter]);
       });
     },
+    pendingWaits: () => [...waiters.values()].reduce((n, list) => n + list.length, 0),
     onFrameError: (listener) => { frameErrorListeners.push(listener); },
     onClosed: (listener) => { closedListeners.push(listener); },
     async close() {
