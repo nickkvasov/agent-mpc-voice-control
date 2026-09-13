@@ -297,3 +297,44 @@ describe('Phase 10 Gate C round 2: playVideo resets the queue cursor in order', 
   });
 });
 
+describe('Phase 10 Gate C round 3: a refused load still changed the player, and the fence knows it', () => {
+  it('an older "next" is overtaken by a newer one that loaded a video, even though autoplay blocked it', async () => {
+    const V = { A: 'AAAAAAAAAAA', B: 'BBBBBBBBBBB', C: 'CCCCCCCCCCC' };
+    let loaded: string | null = V.A;
+    let blocked = false;
+    const player = {
+      loadVideoById: (id: string) => { loaded = id; },
+      loadedVideoId: () => loaded, autoplayBlocked: () => blocked, lastError: () => null,
+      stateSinceRequest: () => (blocked ? null : 1), getPlayerState: () => (blocked ? 5 : 1),
+      getCurrentTime: () => 0, getDuration: () => 600,
+    } as unknown as EmbeddedPlayer;
+    const recorder = new ActivityRecorder(createInMemoryActivityStore());
+    const commands = new CommandRegistry();
+    const scheduler = new DomainScheduler(commands);
+    const three = queueAdd(EMPTY_QUEUE, [V.A, V.B, V.C]);
+    if (!three.ok) throw new Error('setup');
+    let queue: QueueState = { ...three.value, currentEntryId: three.value.items[0]?.entryId ?? null };
+    const actions = createToolActions({
+      recorder, scheduler, player: () => player, markUnavailable: () => {},
+      playback: () => ({ adPlaying: false, hasVideo: true }),
+      results: { get: () => EMPTY, set: () => {} }, videos: () => [],
+      annotations: { get: () => new Map(), annotate: () => {}, replace: () => {} },
+      queue: { get: () => queue, set: (n) => { queue = n; } },
+      collections: { get: () => EMPTY_COLLECTIONS, commit: () => {}, remember: () => {}, deleted: () => undefined },
+      quota: { get: () => ({ searchCallsRemaining: null, resetsAt: null }), set: () => {} },
+      restore: { queue: () => null, annotations: () => null, collections: () => null },
+      ask: () => null, changed: () => {},
+    });
+    const older = commands.issue('agent'); // issued first, acts late
+    const newer = commands.issue('manual');
+    blocked = true;
+    const r1 = await actions[TOOL.playbackNext](newer, {});
+    expect(r1.ok ? '' : r1.reason).toBe(REFUSAL_REASON.autoplayBlocked);
+    expect(loaded).toBe(V.B);
+    blocked = false;
+    const r2 = await actions[TOOL.playbackNext](older, {});
+    expect(r2.ok ? '' : r2.reason).toBe(REFUSAL_REASON.overtakenByNewerCommand);
+    expect(loaded).toBe(V.B);
+  });
+});
+

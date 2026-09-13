@@ -137,16 +137,21 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
   const LOAD_TIMEOUT_MS = 5000;
 
   /** Every playback tool refuses, with the reason, until the player exists. */
-  const withPlayer = <T>(body: (p: EmbeddedPlayer) => Promise<ToolResult<T>> | ToolResult<T>) => (): Promise<ToolResult<T>> | ToolResult<T> => {
-    const p = deps.player();
-    return p === null
-      ? refuse(REFUSAL_REASON.capabilityUnsupported, 'The video player is still loading, so nothing can be played or controlled yet.')
-      : body(p);
-  };
+  const withPlayer = <T>(body: (p: EmbeddedPlayer, fence: FenceHandle) => Promise<ToolResult<T>> | ToolResult<T>) =>
+    (fence: FenceHandle): Promise<ToolResult<T>> | ToolResult<T> => {
+      const p = deps.player();
+      return p === null
+        ? refuse(REFUSAL_REASON.capabilityUnsupported, 'The video player is still loading, so nothing can be played or controlled yet.')
+        : body(p, fence);
+    };
 
   /** Loads a video and reports what the player confirmed — playing, blocked, or why it cannot play. */
-  const loadAndConfirm = async (p: EmbeddedPlayer, videoId: string) => {
+  const loadAndConfirm = async (p: EmbeddedPlayer, videoId: string, fence: FenceHandle) => {
     p.loadVideoById(videoId);
+    // The player now holds a different video, whatever it reports next — an
+    // effect even when the result is a refusal, so an older command in these
+    // domains must be refused as overtaken (Gate C round 3).
+    fence.markApplied();
     // Only a state REPORTED after this request counts: the player still says
     // "playing" for the previous video until the new one reports (Gate C).
     const confirmedPlaying = (): boolean => p.stateSinceRequest() === PLAYING_CODE;
@@ -175,7 +180,7 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
    * unavailable, stating each one skipped. Anything else that stops playback
    * (blocked autoplay, an origin fault) stops navigation too (Gate C).
    */
-  const navigate = (direction: 1 | -1) => async (p: EmbeddedPlayer) => {
+  const navigate = (direction: 1 | -1) => async (p: EmbeddedPlayer, fence: FenceHandle) => {
     const entries = sorted(deps.queue.get().items);
     const skippedNow: { videoId: string; reason: string }[] = [];
     let at = entries.findIndex((e) => e.entryId === deps.queue.get().currentEntryId);
@@ -195,7 +200,7 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       // Skips `step` already knew about are kept, whatever happens to this candidate (round 2).
       for (const known of next.value.skipped) skippedNow.push({ videoId: known.videoId, reason: known.reason });
       const index = entries.findIndex((e, i) => e.videoId === next.value.videoId && (direction === 1 ? i > at : i < at));
-      const played = await loadAndConfirm(p, next.value.videoId);
+      const played = await loadAndConfirm(p, next.value.videoId, fence);
       if (!played.ok && played.reason === REFUSAL_REASON.unavailableVideo) {
         skippedNow.push({ videoId: next.value.videoId, reason: played.detail });
         at = index;
@@ -237,10 +242,11 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       run(sig, TOOL.playbackSetCaptions, c, i, i['enabled'] === true ? 'Turn captions on' : 'Turn captions off', withPlayer((p) =>
         setCaptions(p, i['track'] === undefined ? { enabled: i['enabled'] === true } : { enabled: i['enabled'] === true, track: str(i['track']) }))),
     [TOOL.playbackPlayVideo]: (c, i, sig) =>
-      run(sig, TOOL.playbackPlayVideo, c, i, `Play "${titleOf(str(i['videoId']))}"`, withPlayer(async (p) => {
-        const r = await loadAndConfirm(p, str(i['videoId']));
+      run(sig, TOOL.playbackPlayVideo, c, i, `Play "${titleOf(str(i['videoId']))}"`, withPlayer(async (p, fence) => {
+        const r = await loadAndConfirm(p, str(i['videoId']), fence);
         // Played from outside the queue: the queue has no current entry any more.
-        if (r.ok) deps.queue.set({ ...deps.queue.get(), currentEntryId: null });
+        // The player holds X now, played or not, so the queue has no current entry.
+        deps.queue.set({ ...deps.queue.get(), currentEntryId: null });
         return r;
       })),
     [TOOL.playbackNext]: (c, i, sig) => run(sig, TOOL.playbackNext, c, i, 'Next video', withPlayer(navigate(1))),
