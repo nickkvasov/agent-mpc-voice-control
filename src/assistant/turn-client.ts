@@ -189,14 +189,21 @@ export function visibleTurns(turns: readonly TurnView[]): readonly TurnView[] {
  * A stream that ended normally is not an action that succeeded: a tool may have
  * refused — a person declining a deletion — while the assistant explained it
  * perfectly. The outcome comes from the tool results (Gate C).
+ *
+ * And a turn that did NOT finish — stopped at the step limit, failed, cancelled —
+ * still did whatever it applied before it stopped. Recording that as refused or
+ * cancelled hides changes that are on screen (Gate C round 2), so it is
+ * partially applied, with why it stopped as the reason.
  */
 export function commandOutcome(view: TurnView): { readonly outcome: 'applied' | 'partially_applied' | 'refused' | 'cancelled'; readonly reason: string | null } {
-  if (view.state === 'cancelled') return { outcome: 'cancelled', reason: 'cancelled' };
-  if (view.state !== 'done') return { outcome: 'refused', reason: view.refusal?.reason ?? view.stopReason ?? view.state };
   const applied = view.toolCalls.filter((c) => c.ok === true).length;
   const refused = view.toolCalls.filter((c) => c.ok === false);
-  if (refused.length === 0) return { outcome: 'applied', reason: null };
-  if (applied === 0) return { outcome: 'refused', reason: refused[0]?.reason ?? 'refused' };
-  return { outcome: 'partially_applied', reason: refused[0]?.reason ?? 'refused' };
+  if (view.state === 'done') {
+    if (refused.length === 0) return { outcome: 'applied', reason: null };
+    const reason = refused[0]?.reason ?? 'refused';
+    return { outcome: applied === 0 ? 'refused' : 'partially_applied', reason };
+  }
+  const stoppedBecause = view.state === 'cancelled' ? 'cancelled' : (view.refusal?.reason ?? view.stopReason ?? view.state);
+  if (applied > 0) return { outcome: 'partially_applied', reason: stoppedBecause };
+  return { outcome: view.state === 'cancelled' ? 'cancelled' : 'refused', reason: stoppedBecause };
 }
-

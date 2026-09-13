@@ -232,5 +232,28 @@ describe('assistant turns (T127)', () => {
     expect(String(refused?.data['detail'])).toMatch(/1 action/);
     expect(events.at(-1)?.event).toBe('done');
   });
-});
 
+  it('[Gate C r2] a REFUSED call can still have changed something, so a later failure never claims nothing was done', async () => {
+    // playback.next can load the next video and then refuse `autoplay_blocked`.
+    let n = 0;
+    const failing = {
+      messages: {
+        stream: () => ({
+          finalMessage: async () => {
+            n += 1;
+            if (n === 1) return use('playback__seek', { mode: 'relative', seconds: -10 });
+            throw Object.assign(new Error('connection reset'), { status: 529 });
+          },
+        }),
+      },
+    } as unknown as Anthropic;
+    const { origin, base } = await start(failing);
+    const refusing: FakeTool = { ...seekTool([]), handler: () => ({ ok: false, reason: 'autoplay_blocked', detail: 'Loaded, but the browser blocked playback.' }) };
+    await connectTab(origin, 'tab-1', [refusing]);
+    const events = parseSse(await (await postTurn(base, { commandId: 'cmd-r', tabId: 'tab-1', text: 'go back' })).text());
+    const detail = String(events.find((e) => e.event === 'refused')?.data['detail']);
+    expect(events.find((e) => e.event === 'tool_result')?.data).toMatchObject({ ok: false });
+    expect(detail).not.toMatch(/Nothing was done/);
+    expect(detail).toMatch(/1 action/);
+  });
+});

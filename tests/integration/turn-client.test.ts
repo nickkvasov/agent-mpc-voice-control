@@ -149,6 +149,20 @@ describe('Phase 12 Gate C: what a finished turn means', () => {
     expect(commandOutcome(view({ state: 'refused', refusal: { reason: 'assistant_unavailable', detail: 'x' } }))).toEqual({ outcome: 'refused', reason: 'assistant_unavailable' });
   });
 
+  // Round 2: a turn that did not finish still did whatever it did before it stopped.
+  it.each([
+    ['stopped at the step limit', { state: 'refused', stopReason: 'iteration_limit', refusal: { reason: 'iteration_limit', detail: 'x' } }, 'iteration_limit'],
+    ['failed', { state: 'refused', stopReason: 'failed', refusal: { reason: 'turn_failed', detail: 'x' } }, 'turn_failed'],
+    ['cancelled', { state: 'cancelled', stopReason: 'cancelled' }, 'cancelled'],
+  ] as const)('a turn that %s after an action applied is partially applied, keeping why it stopped', (_label, over, reason) => {
+    const toolCalls = [{ toolName: 'queue.add', ok: true }];
+    expect(commandOutcome(view({ ...over, toolCalls }))).toEqual({ outcome: 'partially_applied', reason });
+  });
+
+  it('a cancelled turn that applied nothing is cancelled', () => {
+    expect(commandOutcome(view({ state: 'cancelled', stopReason: 'cancelled' }))).toEqual({ outcome: 'cancelled', reason: 'cancelled' });
+  });
+
   it('keeps every unfinished turn visible, and only limits finished ones', () => {
     const running = view({ commandId: 'slow', state: 'running' });
     const finished = Array.from({ length: 8 }, (_, i) => view({ commandId: `f${String(i)}` }));

@@ -241,8 +241,6 @@ export function App() {
   useEffect(() => recorder.subscribe(refreshActivity), [refreshActivity]);
 
   // The intake callback outlives renders; these let it read the current state.
-  const connectionRef = useRef(connection);
-  connectionRef.current = connection;
   const mcpConnectionRef = useRef(mcpConnection);
   mcpConnectionRef.current = mcpConnection;
   const allowanceRefusalRef = useRef(allowanceRefusal);
@@ -415,10 +413,12 @@ export function App() {
           if (!m.matched) {
             // FR-003: "not understood" was shown for commands the assistant then
             // carried out (Gate B). Say what actually happens to it.
-            setInterpretation(connectionRef.current === 'connected' ? 'Asked the assistant' : null);
             // Evaluated NOW, not from the last render: an idle page crossing the
             // allowance reset time would otherwise still refuse locally (Gate C).
-            if (deriveConnection(mcpConnectionRef.current, allowanceRefusalRef.current, Date.now()).state !== 'connected') {
+            // One reading decides both what is said and what is done.
+            const available = deriveConnection(mcpConnectionRef.current, allowanceRefusalRef.current, Date.now()).state === 'connected';
+            setInterpretation(available ? 'Asked the assistant' : null);
+            if (!available) {
               // The matcher never guesses, and there is no assistant to ask: refused
               // with the reason it is unavailable (FR-034, FR-037).
               setOutcome(`Not a playback command, and the assistant is not available (${connectionReasonRef.current ?? 'not connected'}), so nothing was done. Everything here still works by hand.`);
