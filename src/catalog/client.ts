@@ -73,7 +73,9 @@ export async function searchCatalog(
           videoId: String(r['videoId'] ?? ''),
           title: String(r['title'] ?? ''),
           channelTitle: String(r['channelTitle'] ?? ''),
-          durationSeconds: Number(r['durationSeconds'] ?? 0),
+          // Omitted when the backend did not establish it, so the reference
+          // stores UNKNOWN. Defaulting to 0 made every live result "0 min".
+          ...(typeof r['durationSeconds'] === 'number' ? { durationSeconds: r['durationSeconds'] } : {}),
           publishedAt: Number(r['publishedAt'] ?? 0),
         }),
       );

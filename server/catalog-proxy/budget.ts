@@ -81,6 +81,20 @@ export class SearchBudget {
     return { allowed: true, remainingToday: Math.max(0, DAILY_WORKING_CAP - this.#spentToday) };
   }
 
+  /**
+   * Upstream refused for quota: nothing more is spent until the day rolls over.
+   *
+   * `quotaDay` is the `resetsAt` in force when the request was made. If the day
+   * has turned since, the refusal describes a day that is over and is ignored —
+   * otherwise a response delayed across midnight shuts the new day too.
+   */
+  markExhausted(quotaDay: number, now: number = Date.now()): void {
+    this.#rollover(now);
+    if (quotaDay !== this.#resetsAt) return;
+    this.#spentToday = Math.max(this.#spentToday, DAILY_WORKING_CAP);
+    this.#established = true;
+  }
+
   spentToday(): number {
     return this.#spentToday;
   }

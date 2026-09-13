@@ -21,6 +21,18 @@ export default defineConfig({
     proxy: {
       '/api': { target: 'http://localhost:8787', changeOrigin: true },
     },
+    fs: {
+      /**
+       * The dev server serves the project root, and Vite's default deny list
+       * covers `.env` and `.env.*` but not `dev.env` — so `GET /dev.env`
+       * returned both API keys (codex, confirmed by requesting it). Setting
+       * `deny` replaces the defaults, so they are restated here in full.
+       */
+      deny: [
+        '.env', '.env.*', '*.env', '*.env.*',
+        '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**',
+      ],
+    },
   },
   test: {
     globals: true,

@@ -24,10 +24,11 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
     "dev": "vite",
+    "server": "node --env-file-if-exists=dev.env --env-file-if-exists=.env server/index.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
     "lint": "eslint .",

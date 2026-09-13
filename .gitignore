@@ -3,3 +3,9 @@ node_modules/
 dist/
 test-results/
 playwright-report/
+
+# local credentials — never commit
+dev.env
+*.env
+.env*
+!.env.example

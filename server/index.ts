@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { CatalogSearch } from './catalog-proxy/search.ts';
 import { SearchBudget } from './catalog-proxy/budget.ts';
+import { youTubeDurationFiller, youTubeSearchFetcher, youTubeVideoDetailsFetcher } from './catalog-proxy/youtube.ts';
 import { handle, requestUrl, writeReply, type RouteDeps } from './routes.ts';
 
 /**
@@ -15,17 +16,18 @@ const PORT = Number(process.env['PORT'] ?? 8787);
 
 export function createDeps(): RouteDeps {
   const budget = new SearchBudget();
+  const youtubeKey = (process.env['YOUTUBE_API_KEY'] ?? '').trim();
+  const unconfigured = async (): Promise<never> => {
+    // Refuses rather than returning a plausible empty list, which would read
+    // as "nothing matched" (IMMUNE-U).
+    throw new Error('YOUTUBE_API_KEY is not set on the backend');
+  };
   return {
     gatewayOrigin: process.env['GATEWAY_ORIGIN'] ?? 'wss://localhost:8788',
-    search: new CatalogSearch(async () => {
-      // The real search.list call lands with the YouTube client; until then this
-      // refuses rather than returning a plausible empty list, which would read
-      // as "nothing matched" (IMMUNE-U).
-      throw new Error('catalog fetcher not configured');
-    }, budget),
-    fetchVideoDetails: async () => {
-      throw new Error('video details fetcher not configured');
-    },
+    search: youtubeKey === ''
+      ? new CatalogSearch(unconfigured, budget)
+      : new CatalogSearch(youTubeSearchFetcher(youtubeKey), budget, youTubeDurationFiller(youtubeKey)),
+    fetchVideoDetails: youtubeKey === '' ? unconfigured : youTubeVideoDetailsFetcher(youtubeKey),
     agentAvailable: () => (process.env['ANTHROPIC_API_KEY'] ?? '').trim() !== '',
   };
 }
@@ -73,6 +75,10 @@ export const server = createServer((req, res) => {
 // binding a port.
 if (process.argv[1]?.endsWith('index.ts') === true || process.argv[1]?.endsWith('index.js') === true) {
   server.listen(PORT, () => {
-    process.stdout.write(`backend listening on http://localhost:${PORT}\n`);
+    // Which credentials are present, never their values.
+    const has = (name: string): string => ((process.env[name] ?? '').trim() === '' ? 'missing' : 'set');
+    process.stdout.write(
+      `backend listening on http://localhost:${String(PORT)} (YOUTUBE_API_KEY ${has('YOUTUBE_API_KEY')}, ANTHROPIC_API_KEY ${has('ANTHROPIC_API_KEY')})\n`,
+    );
   });
 }

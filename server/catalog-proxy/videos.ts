@@ -11,7 +11,8 @@ export const UNKNOWN = 'unknown' as const;
 
 export interface VideoDetails {
   readonly videoId: string;
-  readonly durationSeconds: number;
+  /** UNKNOWN for live and upcoming videos, which report a zero length they do not have. */
+  readonly durationSeconds: number | typeof UNKNOWN;
   readonly hasCaptions: boolean | typeof UNKNOWN;
   readonly chapters: readonly { title: string; startSeconds: number }[] | typeof UNKNOWN;
 }
