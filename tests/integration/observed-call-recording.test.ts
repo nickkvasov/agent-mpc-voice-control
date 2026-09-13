@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ActivityRecorder, createInMemoryActivityStore } from '../../src/activity/record-writer.ts';
 import { recordObservedCall, type ObservedCallLike } from '../../src/activity/from-observed-call.ts';
+import { HandlerStarts } from '../../src/activity/handler-starts.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 
 /**
@@ -69,3 +70,40 @@ describe('observed calls become activity entries only when no handler ran', () =
     expect(r.entries()).toHaveLength(0);
   });
 });
+
+describe('a cancellation after the handler started is not a second entry (Phase 9 Gate C)', () => {
+  const rec = () => new ActivityRecorder(createInMemoryActivityStore());
+  const cancelledEvent = (callId: number, args: unknown): ObservedCallLike => ({
+    phase: 'error', callId, name: 'queue.add', arguments: args,
+    // The library's cancellation path leaves `invoke` at notRun even when the handler ran.
+    gates: gates('notRun'),
+    failure: { vocabulary: 'runtime', code: 'MCP_TOOL_CALL_CANCELLED' },
+  });
+
+  it('skips a cancelled call whose handler started — the handler recorded it', () => {
+    const r = rec();
+    const starts = new HandlerStarts();
+    const args = { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-3' };
+    starts.begin('queue.add', args);
+    recordObservedCall(r, cancelledEvent(7, { commandId: 'cmd-3', videoIds: ['M7lc1UVf-VE'] }), starts);
+    expect(r.entries()).toHaveLength(0);
+  });
+
+  it('records a cancelled call whose handler never started', () => {
+    const r = rec();
+    const starts = new HandlerStarts();
+    recordObservedCall(r, cancelledEvent(8, { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-4' }), starts);
+    expect(r.entries()).toHaveLength(1);
+  });
+
+  it('two identical starts are matched one each, never both by one event', () => {
+    const r = rec();
+    const starts = new HandlerStarts();
+    const args = { videoIds: ['M7lc1UVf-VE'], commandId: 'cmd-5' };
+    starts.begin('queue.add', args);
+    recordObservedCall(r, cancelledEvent(9, args), starts);
+    recordObservedCall(r, cancelledEvent(10, args), starts);
+    expect(r.entries()).toHaveLength(1);
+  });
+});
+

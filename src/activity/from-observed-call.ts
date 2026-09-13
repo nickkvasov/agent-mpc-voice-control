@@ -1,5 +1,6 @@
 import type { ActivityRecorder, RecordedCall } from './record-writer.ts';
 import { REFUSAL_REASON, isRefusalReason, type RefusalReason } from '../vocab/refusal-reasons.ts';
+import { handlerStarts as pageHandlerStarts, type HandlerStarts } from './handler-starts.ts';
 
 /**
  * Maps the provider's observed calls onto activity entries — for calls refused
@@ -53,7 +54,11 @@ function reasonFor(code: string | undefined): RefusalReason {
   return REFUSAL_REASON.capabilityUnsupported;
 }
 
-export function recordObservedCall(recorder: ActivityRecorder, event: ObservedCallLike): void {
+export function recordObservedCall(
+  recorder: ActivityRecorder,
+  event: ObservedCallLike,
+  starts: HandlerStarts = pageHandlerStarts,
+): void {
   if (event.phase !== CALL_PHASE_RESULT && event.phase !== CALL_PHASE_ERROR) return;
 
   const invoke = event.gates.find((g) => g.step === INVOKE_STEP);
@@ -62,9 +67,12 @@ export function recordObservedCall(recorder: ActivityRecorder, event: ObservedCa
     // acceptable evidence, so the malformed event is reported, not absorbed.
     throw new Error(`Observed call ${String(event.callId)} (${event.name}) carries no ${INVOKE_STEP} gate; cannot tell whether a handler ran`);
   }
+  // Consumed unconditionally, so every handler start is matched to exactly one terminal.
+  const started = starts.consume(event.name, event.arguments);
   // A handler ran: the handler path recorded this call with its real outcome
-  // and effect. Recording it here too would be a second entry for one call.
-  if (invoke.outcome !== NOT_RUN) return;
+  // and effect. `invoke` alone is not enough — the library's cancellation path
+  // leaves it `notRun` even after the handler ran (Phase 9 Gate C).
+  if (invoke.outcome !== NOT_RUN || started) return;
 
   const base = {
     callId: `${event.route ?? 'agent'}:${String(event.callId)}`,

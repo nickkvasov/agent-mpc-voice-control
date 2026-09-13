@@ -32,6 +32,10 @@ export function McpRoot({ children, getTicketUrl }: McpRootProps) {
       server={{ name: 'voice-video-control', version: '0.1.0' }}
       capabilities={CAPABILITIES}
       validation={{ validator: createAjvValidator() }}
+      // Arguments on observed calls, so a cancellation after the handler started
+      // can be matched to the entry that handler already wrote (handler-starts.ts).
+      // Page-local: these events never leave the page.
+      observability={{ payloads: 'values' }}
       // Terminal call events feed the activity record. Start is not recorded:
       // one call must produce exactly one entry (SC-006).
       onToolResult={(event) => recordObservedCall(recorder, event)}

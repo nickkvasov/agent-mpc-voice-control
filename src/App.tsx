@@ -100,13 +100,14 @@ export function App() {
   const [annotations, setAnnotations] = useState<ReadonlyMap<string, { label: string | null; tags: readonly string[] }>>(new Map());
   const annotationsRef = useRef<ReadonlyMap<string, { label: string | null; tags: readonly string[] }>>(new Map());
   const annotate = useCallback((videoId: string, change: { label?: string | null; tags?: readonly string[] }) => {
-    setAnnotations((cur) => {
-      const next = new Map(cur);
-      const existing = next.get(videoId) ?? { label: null, tags: [] };
-      next.set(videoId, { label: change.label !== undefined ? change.label : existing.label, tags: change.tags ?? existing.tags });
-      annotationsRef.current = next;
-      return next;
-    });
+    // The ref is the authority the actions read, so it is updated NOW. Setting
+    // it inside a state updater — which React may run later — let a second
+    // write in the same call read the first one's stale value (Phase 9 Gate C).
+    const next = new Map(annotationsRef.current);
+    const existing = next.get(videoId) ?? { label: null, tags: [] };
+    next.set(videoId, { label: change.label !== undefined ? change.label : existing.label, tags: change.tags ?? existing.tags });
+    annotationsRef.current = next;
+    setAnnotations(next);
   }, []);
 
   const [collections, setCollections] = useState<CollectionsState>(EMPTY_COLLECTIONS);

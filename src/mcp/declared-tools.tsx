@@ -4,6 +4,7 @@ import type { CommandRegistry } from '../app/commands.ts';
 import type { ToolActions } from '../app/tool-actions.ts';
 import { invokeRecorded } from '../app/invoke.ts';
 import { recorder } from '../activity/recorder.ts';
+import { handlerStarts } from '../activity/handler-starts.ts';
 import { wireSchema, withoutCommandId } from './command-id.ts';
 import { TOOL_DESCRIPTIONS, toolLabel } from './tool-descriptions.ts';
 import type { ToolName } from '../vocab/tool-names.ts';
@@ -52,6 +53,7 @@ function DeclaredTool({ tool }: { tool: ToolName }) {
     description: TOOL_DESCRIPTIONS[tool],
     inputSchema: wireSchema(tool),
     handler: async (args, context) => {
+      handlerStarts.begin(tool, args);
       const { commandId, input } = withoutCommandId(args);
       const resolved = surface.commands.resolveForCall(commandId ?? '');
       if (!resolved.ok) {
@@ -59,7 +61,9 @@ function DeclaredTool({ tool }: { tool: ToolName }) {
         // "refused" and the detail names the command.
         return invokeRecorded(recorder, tool, input, `${toolLabel(tool)} (for a command that is not open)`, () => resolved, null, commandId);
       }
-      const result = await surface.actions[tool](resolved.value, input);
+      // The call's own signal: it aborts when the agent cancels or this view
+      // unmounts, and an action still waiting for its domain must then not apply.
+      const result = await surface.actions[tool](resolved.value, input, context.signal);
       // The agent's next read must see what this call changed.
       await context.afterRender();
       return result;

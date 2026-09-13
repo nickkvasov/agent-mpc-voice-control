@@ -98,6 +98,58 @@ export function removeTag(
   return ok({ videoIds: videos.map((v) => v.videoId), tag: t, changed, unchanged });
 }
 
+export interface TagPlan {
+  readonly tags: readonly string[];
+  /** Each changed video's complete tag list after the batch. */
+  readonly next: readonly { readonly videoId: string; readonly tags: readonly string[] }[];
+  readonly changed: readonly string[];
+  readonly unchanged: readonly string[];
+}
+
+/**
+ * A whole tag batch, planned before anything changes (Phase 9 Gate C).
+ *
+ * Applying tags one at a time let a later refusal leave earlier tags in place
+ * while the record said the call failed, and read-after-write through React
+ * state lost all but the last tag. Planning first means the batch applies
+ * whole or not at all, and each video is written once with its final tags.
+ * A tag already present on a video is not a refusal — nothing about that video
+ * needs to change for that tag — unless nothing in the batch changes at all.
+ */
+export function planTags(
+  videos: readonly VideoReference[],
+  tags: readonly string[],
+  adding: boolean,
+  confirmedCount?: number,
+): ToolResult<TagPlan> {
+  const normalised = [...new Set(tags.map(normaliseTag))];
+  if (normalised.length === 0 || normalised.some((t) => t === '')) {
+    return refuse(REFUSAL_REASON.argumentsInvalid, 'Every tag needs some text; nothing was changed.');
+  }
+  const next: { videoId: string; tags: readonly string[] }[] = [];
+  for (const v of videos) {
+    const after = adding
+      ? [...v.tags, ...normalised.filter((t) => !v.tags.includes(t))]
+      : v.tags.filter((t) => !normalised.includes(t));
+    if (after.length !== v.tags.length) next.push({ videoId: v.videoId, tags: after });
+  }
+  const changed = next.map((n) => n.videoId);
+  const unchanged = videos.map((v) => v.videoId).filter((id) => !changed.includes(id));
+  const quoted = normalised.map((t) => `"${t}"`).join(', ');
+  if (changed.length === 0) {
+    return adding
+      ? refuse(REFUSAL_REASON.argumentsInvalid, videos.length === 1 ? `That video is already tagged ${quoted}.` : `All of them are already tagged ${quoted}.`)
+      : refuse(REFUSAL_REASON.noSuchVideo, `None of those are tagged ${quoted}.`);
+  }
+  if (changed.length > BULK_THRESHOLD && confirmedCount !== changed.length) {
+    return refuse(
+      REFUSAL_REASON.needsConfirmation,
+      `That would ${adding ? 'tag' : 'untag'} ${String(changed.length)} videos. Confirm that count to go ahead.`,
+    );
+  }
+  return ok({ tags: normalised, next, changed, unchanged });
+}
+
 /** What the interface shows for a video: the person's label, else the source title. */
 export function displayName(video: VideoReference): { readonly shown: string; readonly isPersonal: boolean } {
   return video.label === null ? { shown: video.title, isPersonal: false } : { shown: video.label, isPersonal: true };

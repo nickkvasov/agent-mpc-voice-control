@@ -42,6 +42,8 @@ export class DomainScheduler {
     command: Command,
     domains: readonly CommandDomain[],
     action: (fence: FenceHandle) => Promise<ToolResult<T>> | ToolResult<T>,
+    /** The call's signal. Checked when the lanes are held, before anything applies. */
+    signal?: AbortSignal,
   ): Promise<ToolResult<T>> {
     const lanes = [...new Set(domains)];
     let release!: () => void;
@@ -55,6 +57,12 @@ export class DomainScheduler {
       try {
         await Promise.all(waitFor);
         const current = this.#commands.get(command.commandId) ?? command;
+        if (signal?.aborted === true) {
+          // Its view closed or its caller cancelled while it waited. The library
+          // has already reported the call abandoned; applying it anyway would
+          // change state nobody is waiting for (Phase 9 Gate C).
+          return refuse(REFUSAL_REASON.commandCancelled, 'Not applied: the call was cancelled while it waited — its view closed or its caller cancelled it.');
+        }
         if (current.state === 'revoked') {
           return refuse(REFUSAL_REASON.commandCancelled, `Command ${command.commandId} was cancelled before it applied.`);
         }

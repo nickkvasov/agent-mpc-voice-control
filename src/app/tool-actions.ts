@@ -12,7 +12,7 @@ import {
   addToCollection, createCollection, deleteCollection, removeFromCollection,
   type Collection, type CollectionsState,
 } from '../curation/collections.ts';
-import { addTag, removeTag, setLabel } from '../curation/annotations.ts';
+import { planTags, setLabel } from '../curation/annotations.ts';
 import { resolveConfirmation, resolveCountedConfirmation } from '../mcp/confirmation-resolver.ts';
 import { ok, refuse, type ToolResult } from '../mcp/result.ts';
 import { refuseUnsupportedCapability } from '../mcp/tool-availability.ts';
@@ -44,7 +44,7 @@ import { BULK_THRESHOLD, isToolName, TOOL, type ToolName } from '../vocab/tool-n
  * twice. It is asked BEFORE the domain is taken, so a person reading a dialog
  * does not hold the domain (R7).
  */
-export type ToolAction = (command: Command, input: Record<string, unknown>) => Promise<ToolResult<unknown>>;
+export type ToolAction = (command: Command, input: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult<unknown>>;
 export type ToolActions = Readonly<Record<ToolName, ToolAction>>;
 
 type Annotations = ReadonlyMap<string, { label: string | null; tags: readonly string[] }>;
@@ -93,6 +93,8 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
 
   /** The one path: record → order → act. */
   const run = async <T>(
+    /** The call's signal; an action still waiting for its domain does not apply once it aborts. */
+    signal: AbortSignal | undefined,
     tool: ToolName,
     command: Command,
     input: Record<string, unknown>,
@@ -104,7 +106,7 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     try {
       return await invokeRecorded(
         deps.recorder, tool, input, describe,
-        () => deps.scheduler.run(command, domains, body),
+        () => deps.scheduler.run(command, domains, body, signal),
         effectOf, command.commandId,
       );
     } finally {
@@ -126,38 +128,38 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
 
   const actions: ToolActions = {
     // ── playback ──────────────────────────────────────────────────────────
-    [TOOL.playbackPlay]: (c, i) => run(TOOL.playbackPlay, c, i, 'Play', () => play(player(), deps.playback())),
-    [TOOL.playbackPause]: (c, i) => run(TOOL.playbackPause, c, i, 'Pause', () => pause(player(), deps.playback())),
-    [TOOL.playbackStop]: (c, i) => run(TOOL.playbackStop, c, i, 'Stop', () => stop(player(), deps.playback())),
-    [TOOL.playbackSeek]: (c, i) => {
+    [TOOL.playbackPlay]: (c, i, sig) => run(sig, TOOL.playbackPlay, c, i, 'Play', () => play(player(), deps.playback())),
+    [TOOL.playbackPause]: (c, i, sig) => run(sig, TOOL.playbackPause, c, i, 'Pause', () => pause(player(), deps.playback())),
+    [TOOL.playbackStop]: (c, i, sig) => run(sig, TOOL.playbackStop, c, i, 'Stop', () => stop(player(), deps.playback())),
+    [TOOL.playbackSeek]: (c, i, sig) => {
       const mode = i['mode'] === 'absolute' ? 'absolute' : 'relative';
       const seconds = num(i['seconds']) ?? 0;
       const label = mode === 'absolute' ? `Seek to ${String(seconds)}s` : `Seek ${seconds >= 0 ? 'forward' : 'back'} ${String(Math.abs(seconds))}s`;
-      return run(TOOL.playbackSeek, c, i, label, () => seek(player(), deps.playback(), mode, seconds));
+      return run(sig, TOOL.playbackSeek, c, i, label, () => seek(player(), deps.playback(), mode, seconds));
     },
-    [TOOL.playbackSeekToChapter]: (c, i) =>
+    [TOOL.playbackSeekToChapter]: (c, i, sig) =>
       // The current video's chapters are not known until the real player
       // reports which video is loaded (T116); until then this refuses with the
       // reason rather than guessing a position.
-      run(TOOL.playbackSeekToChapter, c, i, `Go to the chapter "${str(i['query'])}"`, () =>
+      run(sig, TOOL.playbackSeekToChapter, c, i, `Go to the chapter "${str(i['query'])}"`, () =>
         seekToChapter(player(), UNKNOWN, str(i['query']))),
-    [TOOL.playbackSetRate]: (c, i) =>
-      run(TOOL.playbackSetRate, c, i, `Set speed to ${String(num(i['rate']))}x`, () => setRate(player(), num(i['rate']) ?? 1)),
-    [TOOL.playbackSetVolume]: (c, i) =>
-      run(TOOL.playbackSetVolume, c, i, `Set volume to ${String(num(i['volume']))}`, () => setVolume(player(), num(i['volume']) ?? 0)),
-    [TOOL.playbackSetMuted]: (c, i) =>
-      run(TOOL.playbackSetMuted, c, i, i['muted'] === true ? 'Mute' : 'Unmute', () => setMuted(player(), i['muted'] === true)),
-    [TOOL.playbackSetCaptions]: (c, i) =>
-      run(TOOL.playbackSetCaptions, c, i, i['enabled'] === true ? 'Turn captions on' : 'Turn captions off', () =>
+    [TOOL.playbackSetRate]: (c, i, sig) =>
+      run(sig, TOOL.playbackSetRate, c, i, `Set speed to ${String(num(i['rate']))}x`, () => setRate(player(), num(i['rate']) ?? 1)),
+    [TOOL.playbackSetVolume]: (c, i, sig) =>
+      run(sig, TOOL.playbackSetVolume, c, i, `Set volume to ${String(num(i['volume']))}`, () => setVolume(player(), num(i['volume']) ?? 0)),
+    [TOOL.playbackSetMuted]: (c, i, sig) =>
+      run(sig, TOOL.playbackSetMuted, c, i, i['muted'] === true ? 'Mute' : 'Unmute', () => setMuted(player(), i['muted'] === true)),
+    [TOOL.playbackSetCaptions]: (c, i, sig) =>
+      run(sig, TOOL.playbackSetCaptions, c, i, i['enabled'] === true ? 'Turn captions on' : 'Turn captions off', () =>
         setCaptions(player(), i['track'] === undefined ? { enabled: i['enabled'] === true } : { enabled: i['enabled'] === true, track: str(i['track']) })),
-    [TOOL.playbackNext]: (c, i) =>
+    [TOOL.playbackNext]: (c, i, sig) =>
       // The stand-in player cannot load a queued video; the real player does
       // (T116). Refused with that reason until then, never a pretend success.
-      run(TOOL.playbackNext, c, i, 'Next video', () => refuseUnsupportedCapability(TOOL.playbackNext)),
-    [TOOL.playbackPrevious]: (c, i) =>
-      run(TOOL.playbackPrevious, c, i, 'Previous video', () => refuseUnsupportedCapability(TOOL.playbackPrevious)),
-    [TOOL.playbackGetState]: (c, i) =>
-      run(TOOL.playbackGetState, c, i, 'Read the player state', () => {
+      run(sig, TOOL.playbackNext, c, i, 'Next video', () => refuseUnsupportedCapability(TOOL.playbackNext)),
+    [TOOL.playbackPrevious]: (c, i, sig) =>
+      run(sig, TOOL.playbackPrevious, c, i, 'Previous video', () => refuseUnsupportedCapability(TOOL.playbackPrevious)),
+    [TOOL.playbackGetState]: (c, i, sig) =>
+      run(sig, TOOL.playbackGetState, c, i, 'Read the player state', () => {
         const p = player();
         return ok({
           state: playerState(p),
@@ -170,9 +172,9 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       }),
 
     // ── catalog ───────────────────────────────────────────────────────────
-    [TOOL.catalogSearch]: (c, i) => {
+    [TOOL.catalogSearch]: (c, i, sig) => {
       const criteria: Criteria = { query: str(i['query']), ...optionalCriteria(i, ['publishedAfter', 'publishedBefore']) };
-      return run(TOOL.catalogSearch, c, i, `Search for "${str(i['query'])}"`, async () => {
+      return run(sig, TOOL.catalogSearch, c, i, `Search for "${str(i['query'])}"`, async () => {
         const r = await search(criteria);
         if (!r.ok) return r;
         deps.quota.set(r.value.quota);
@@ -180,29 +182,31 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         return ok({ results: r.value.items, criteriaApplied: r.value.criteriaApplied, fromCache: r.value.fromCache, quota: r.value.quota });
       });
     },
-    [TOOL.catalogNarrow]: (c, i) => {
+    [TOOL.catalogNarrow]: (c, i, sig) => {
       const criteria = optionalCriteria(i, ['maxDurationSeconds', 'minDurationSeconds', 'publishedAfter', 'publishedBefore', 'titleContains']);
-      return run(TOOL.catalogNarrow, c, i, 'Narrow the current results', () => {
+      return run(sig, TOOL.catalogNarrow, c, i, 'Narrow the current results', () => {
         const next = narrowLocally(deps.results.get(), criteria);
         deps.results.set(next);
         return ok({ results: next.items, criteriaApplied: next.criteria, narrowedFrom: 'current_results', setAsideUnknown: next.setAsideUnknown });
       });
     },
-    [TOOL.catalogGetCurrentResults]: (c, i) =>
-      run(TOOL.catalogGetCurrentResults, c, i, 'Read the current results', () =>
+    [TOOL.catalogGetCurrentResults]: (c, i, sig) =>
+      run(sig, TOOL.catalogGetCurrentResults, c, i, 'Read the current results', () =>
         ok({ results: deps.videos(), criteriaApplied: deps.results.get().criteria })),
-    [TOOL.catalogResolveReference]: (c, i) =>
-      run(TOOL.catalogResolveReference, c, i, `Work out which video "${str(i['reference'])}" means`, () =>
+    [TOOL.catalogResolveReference]: (c, i, sig) =>
+      run(sig, TOOL.catalogResolveReference, c, i, `Work out which video "${str(i['reference'])}" means`, () =>
         resolveReference(deps.videos(), str(i['reference']))),
-    [TOOL.catalogGetQuota]: (c, i) => run(TOOL.catalogGetQuota, c, i, 'Read the search allowance', () => ok(deps.quota.get())),
+    [TOOL.catalogGetQuota]: (c, i, sig) => run(sig, TOOL.catalogGetQuota, c, i, 'Read the search allowance', () => ok(deps.quota.get())),
 
     // ── queue ─────────────────────────────────────────────────────────────
-    [TOOL.queueAdd]: (c, i) => {
+    [TOOL.queueAdd]: (c, i, sig) => {
       const ids = strs(i['videoIds']);
       const position = i['position'] === 'next' ? 'next' : 'end';
       const confirmed = countedAbove(ids.length, `Queue ${String(ids.length)} videos? Type the number to confirm.`);
-      const before = new Set(deps.queue.get().items.map((e) => e.entryId));
-      return run(TOOL.queueAdd, c, i, `Queue ${ids.join(', ')}`, () => {
+      // Taken when the change applies, inside the held domain — not when issued (Gate C).
+      let before = new Set<string>();
+      return run(sig, TOOL.queueAdd, c, i, `Queue ${ids.join(', ')}`, () => {
+        before = new Set(deps.queue.get().items.map((e) => e.entryId));
         const r = queueAdd(deps.queue.get(), ids, position, confirmed);
         if (r.ok) deps.queue.set(r.value);
         return r;
@@ -214,18 +218,21 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         return one === undefined ? null : { kind: 'queue_occurrence', entryId: one.entryId, added: true, videoId: one.videoId, order: one.order };
       });
     },
-    [TOOL.queueRemove]: (c, i) => {
+    [TOOL.queueRemove]: (c, i, sig) => {
       const ids = strs(i['videoIds']);
       const entryIds = strs(i['entryIds']);
-      const snapshot = deps.queue.get().items;
+      const issued = deps.queue.get().items;
       const matching = entryIds.length > 0
-        ? snapshot.filter((e) => entryIds.includes(e.entryId)).length
-        : snapshot.filter((e) => ids.includes(e.videoId)).length;
+        ? issued.filter((e) => entryIds.includes(e.entryId)).length
+        : issued.filter((e) => ids.includes(e.videoId)).length;
+      // Replaced inside the held domain; the confirmation count above is what is revalidated.
+      let snapshot = issued;
       const confirmed = countedAbove(matching, `Remove ${String(matching)} queued videos? Type the number to confirm.`);
       const named = entryIds.length > 0
-        ? entryIds.map((id) => snapshot.find((e) => e.entryId === id)?.videoId ?? id).join(', ')
+        ? entryIds.map((id) => issued.find((e) => e.entryId === id)?.videoId ?? id).join(', ')
         : ids.join(', ');
-      return run(TOOL.queueRemove, c, i, `Removed ${named} from the queue`, () => {
+      return run(sig, TOOL.queueRemove, c, i, `Removed ${named} from the queue`, () => {
+        snapshot = deps.queue.get().items;
         const r = entryIds.length > 0 ? removeEntries(deps.queue.get(), entryIds, confirmed) : removeVideo(deps.queue.get(), ids, confirmed);
         if (r.ok) deps.queue.set(r.value);
         return r;
@@ -235,38 +242,40 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         return one === undefined ? null : { kind: 'queue_occurrence', entryId: one.entryId, added: false, videoId: one.videoId, order: one.order };
       });
     },
-    [TOOL.queueReorder]: (c, i) =>
-      run(TOOL.queueReorder, c, i, `Move ${str(i['videoId'])} to position ${String(num(i['toIndex']))}`, () => {
+    [TOOL.queueReorder]: (c, i, sig) =>
+      run(sig, TOOL.queueReorder, c, i, `Move ${str(i['videoId'])} to position ${String(num(i['toIndex']))}`, () => {
         const entry = sorted(deps.queue.get().items).find((e) => e.videoId === str(i['videoId']));
         if (entry === undefined) return refuse(REFUSAL_REASON.noSuchVideo, `${str(i['videoId'])} is not in the queue.`);
         const r = reorder(deps.queue.get(), entry.entryId, num(i['toIndex']) ?? 0);
         if (r.ok) deps.queue.set(r.value);
         return r;
       }),
-    [TOOL.queueClear]: (c, i) => {
+    [TOOL.queueClear]: (c, i, sig) => {
       const count = deps.queue.get().items.length;
       const confirmed = countedAbove(count, `Clear all ${String(count)} queued videos? Type the number to confirm.`);
-      return run(TOOL.queueClear, c, i, 'Clear the queue', () => {
+      return run(sig, TOOL.queueClear, c, i, 'Clear the queue', () => {
         const r = queueClear(deps.queue.get(), confirmed);
         if (r.ok) deps.queue.set(r.value);
         return r;
       });
     },
-    [TOOL.queueGet]: (c, i) => run(TOOL.queueGet, c, i, 'Read the queue', () => ok(deps.queue.get())),
+    [TOOL.queueGet]: (c, i, sig) => run(sig, TOOL.queueGet, c, i, 'Read the queue', () => ok(deps.queue.get())),
 
     // ── curation ──────────────────────────────────────────────────────────
-    [TOOL.curationCreateCollection]: (c, i) =>
-      run(TOOL.curationCreateCollection, c, i, `Create collection "${str(i['name'])}"`, () => {
+    [TOOL.curationCreateCollection]: (c, i, sig) =>
+      run(sig, TOOL.curationCreateCollection, c, i, `Create collection "${str(i['name'])}"`, () => {
         const r = createCollection(deps.collections.get(), str(i['name']));
         if (r.ok) deps.collections.commit(r.value.state);
         return r.ok ? ok({ collectionId: r.value.collection.collectionId }) : r;
       }),
-    [TOOL.curationAddToCollection]: (c, i) => {
+    [TOOL.curationAddToCollection]: (c, i, sig) => {
       const collectionId = str(i['collectionId']);
       const ids = strs(i['videoIds']);
       const target = deps.collections.get().items.find((x) => x.collectionId === collectionId);
-      const confirmed = countedAbove(ids.length, `Add ${String(ids.length)} videos to "${target?.name ?? collectionId}"? Type the number to confirm.`);
-      return run(TOOL.curationAddToCollection, c, i, `Add ${ids.join(', ')} to "${target?.name ?? collectionId}"`, () => {
+      // The count that will actually change: videos already in it are not additions (Gate C).
+      const additions = [...new Set(ids)].filter((id) => !(target?.videoIds.includes(id) ?? false)).length;
+      const confirmed = countedAbove(additions, `Add ${String(additions)} videos to "${target?.name ?? collectionId}"? Type the number to confirm.`);
+      return run(sig, TOOL.curationAddToCollection, c, i, `Add ${ids.join(', ')} to "${target?.name ?? collectionId}"`, () => {
         const r = addToCollection(deps.collections.get(), collectionId, ids, confirmed);
         if (r.ok) deps.collections.commit(r.value.state);
         return r;
@@ -277,16 +286,23 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
           : { kind: 'collection_member', collectionId, videoId: one, added: true, index: v.state.items.find((x) => x.collectionId === collectionId)?.videoIds.indexOf(one) ?? 0 };
       });
     },
-    [TOOL.curationRemoveFromCollection]: (c, i) => {
+    [TOOL.curationRemoveFromCollection]: (c, i, sig) => {
       const collectionId = str(i['collectionId']);
       const ids = strs(i['videoIds']);
       const target = deps.collections.get().items.find((x) => x.collectionId === collectionId);
       const name = target?.name ?? collectionId;
       // FR-026: names the specific target before discarding anything, for every caller.
       const confirmed = resolveConfirmation(deps.ask(`Remove ${ids.join(', ')} from "${name}"?`)) === 'confirmed';
-      const counted = countedAbove(ids.length, `That removes ${String(ids.length)} videos from "${name}". Type the number to confirm.`);
-      const indexBefore = ids.length === 1 ? (target?.videoIds.indexOf(ids[0] ?? '') ?? 0) : 0;
-      return run(TOOL.curationRemoveFromCollection, c, i, `Remove ${ids.join(', ')} from "${name}"`, () => {
+      const removals = [...new Set(ids)].filter((id) => target?.videoIds.includes(id) ?? false).length;
+      const counted = countedAbove(removals, `That removes ${String(removals)} videos from "${name}". Type the number to confirm.`);
+      // Where the video was when it is actually removed, read inside the held
+      // domain: an index taken at issue time restores to the wrong place when
+      // another removal applied first (Gate C).
+      let indexBefore = 0;
+      return run(sig, TOOL.curationRemoveFromCollection, c, i, `Remove ${ids.join(', ')} from "${name}"`, () => {
+        indexBefore = ids.length === 1
+          ? (deps.collections.get().items.find((x) => x.collectionId === collectionId)?.videoIds.indexOf(ids[0] ?? '') ?? 0)
+          : 0;
         const r = removeFromCollection(deps.collections.get(), collectionId, ids, confirmed, counted);
         if (r.ok) deps.collections.commit(r.value.state);
         return r;
@@ -295,14 +311,14 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         return one === undefined ? null : { kind: 'collection_member', collectionId, videoId: one, added: false, index: indexBefore };
       });
     },
-    [TOOL.curationDeleteCollection]: (c, i) => {
+    [TOOL.curationDeleteCollection]: (c, i, sig) => {
       const collectionId = str(i['collectionId']);
       const target = deps.collections.get().items.find((x) => x.collectionId === collectionId);
       const count = target?.videoIds.length ?? 0;
       // FR-027: the count is said back, not merely approved.
       const answer = deps.ask(`Delete "${target?.name ?? collectionId}" and the ${String(count)} video${count === 1 ? '' : 's'} in it? Type the number to confirm.`);
       const confirmed = resolveCountedConfirmation(answer, count) === 'confirmed';
-      return run(TOOL.curationDeleteCollection, c, i, `Delete collection "${target?.name ?? collectionId}"`, () => {
+      return run(sig, TOOL.curationDeleteCollection, c, i, `Delete collection "${target?.name ?? collectionId}"`, () => {
         const r = deleteCollection(deps.collections.get(), collectionId, confirmed ? count : undefined);
         if (r.ok) {
           deps.collections.remember(r.value.deleted);
@@ -312,11 +328,11 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         return r;
       }, () => ({ kind: 'collection_existence', collectionId, created: false }));
     },
-    [TOOL.curationSetLabel]: (c, i) => {
+    [TOOL.curationSetLabel]: (c, i, sig) => {
       const videoId = str(i['videoId']);
       const raw = i['label'];
       const label = typeof raw === 'string' && raw.trim() !== '' ? raw : null;
-      return run(TOOL.curationSetLabel, c, i, `Label ${videoId}`, () => {
+      return run(sig, TOOL.curationSetLabel, c, i, `Label ${videoId}`, () => {
         const video = findVideos([videoId]).found[0];
         if (video === undefined) return refuse(REFUSAL_REASON.noSuchVideo, `${videoId} is not among the loaded videos, so it cannot be labelled here.`);
         const r = setLabel(video, label);
@@ -324,27 +340,27 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         return r;
       }, (v) => ({ kind: 'label', videoId, from: v.previousLabel, to: v.label }));
     },
-    [TOOL.curationAddTags]: (c, i) => tagAction(TOOL.curationAddTags, c, i, true),
-    [TOOL.curationRemoveTags]: (c, i) => tagAction(TOOL.curationRemoveTags, c, i, false),
+    [TOOL.curationAddTags]: (c, i, sig) => tagAction(TOOL.curationAddTags, c, i, true, sig),
+    [TOOL.curationRemoveTags]: (c, i, sig) => tagAction(TOOL.curationRemoveTags, c, i, false, sig),
 
     // ── activity ──────────────────────────────────────────────────────────
-    [TOOL.activityList]: (c, i) =>
-      run(TOOL.activityList, c, i, 'Read the activity record', () => {
+    [TOOL.activityList]: (c, i, sig) =>
+      run(sig, TOOL.activityList, c, i, 'Read the activity record', () => {
         const limit = num(i['limit']) ?? 50;
         return ok({ entries: [...deps.recorder.entries()].sort((a, b) => b.sequence - a.sequence).slice(0, limit) });
       }),
-    [TOOL.activityDescribeRecent]: (c, i) =>
-      run(TOOL.activityDescribeRecent, c, i, 'Describe what was done recently', () =>
+    [TOOL.activityDescribeRecent]: (c, i, sig) =>
+      run(sig, TOOL.activityDescribeRecent, c, i, 'Describe what was done recently', () =>
         // From the record itself, so the answer cannot disagree with it (FR-033).
         ok({ summary: describeRecent(deps.recorder.entries().map(toDescribable), num(i['count']) ?? 5) })),
-    [TOOL.activityUndo]: (c, i) => {
+    [TOOL.activityUndo]: (c, i, sig) => {
       const entryId = str(i['entryId']);
       const target = deps.recorder.entries().find((e) => e.entryId === entryId);
       const describe = target === undefined ? `Undo ${entryId}` : `Undo: ${target.description}`;
       // Fenced by the domains of the entry it reverses (R7).
       const declared = target !== undefined && isToolName(target.toolName) ? TOOL_DOMAINS[target.toolName] : [];
       const entryDomains = declared === PER_ENTRY ? [] : declared;
-      return run(TOOL.activityUndo, c, i, describe, () => {
+      return run(sig, TOOL.activityUndo, c, i, describe, () => {
         if (target === undefined) return refuse(REFUSAL_REASON.noSuchVideo, 'That entry is no longer in the record.');
         const r = undoEntry(target, deps.recorder.entries(), {
           apply: (effect) => {
@@ -373,30 +389,28 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     },
   };
 
-  function tagAction(tool: typeof TOOL.curationAddTags | typeof TOOL.curationRemoveTags, c: Command, i: Record<string, unknown>, adding: boolean) {
+  function tagAction(
+    tool: typeof TOOL.curationAddTags | typeof TOOL.curationRemoveTags,
+    c: Command,
+    i: Record<string, unknown>,
+    adding: boolean,
+    sig: AbortSignal | undefined,
+  ) {
     const ids = strs(i['videoIds']);
     const tags = strs(i['tags']);
-    const confirmed = countedAbove(ids.length, `${adding ? 'Tag' : 'Untag'} ${String(ids.length)} videos? Type the number to confirm.`);
-    return run(tool, c, i, `${adding ? 'Tag' : 'Untag'} ${ids.join(', ')} "${tags.join('", "')}"`, (fence) => {
+    // The count that will actually change, planned against current tags (Gate C).
+    const preview = planTags(findVideos(ids).found, tags, adding, Number.MAX_SAFE_INTEGER);
+    const affected = preview.ok ? preview.value.changed.length : 0;
+    const confirmed = countedAbove(affected, `${adding ? 'Tag' : 'Untag'} ${String(affected)} videos? Type the number to confirm.`);
+    return run(sig, tool, c, i, `${adding ? 'Tag' : 'Untag'} ${ids.join(', ')} "${tags.join('", "')}"`, () => {
       const { found, missing } = findVideos(ids);
-      if (missing.length > 0) return refuse(REFUSAL_REASON.noSuchVideo, `Not among the loaded videos: ${missing.join(', ')}.`);
-      let lastTag = '';
-      for (const tag of tags) {
-        // Re-read each time: an earlier tag in this call has already changed them.
-        const current = findVideos(ids).found;
-        const r = adding ? addTag(current, tag, confirmed) : removeTag(current, tag, confirmed);
-        if (!r.ok) {
-          return tags.length > 1 && lastTag !== ''
-            ? refuse(r.reason, `Applied up to "${lastTag}"; stopped at "${tag}": ${r.detail}`)
-            : r;
-        }
-        for (const v of current.filter((x) => r.value.changed.includes(x.videoId))) {
-          deps.annotations.annotate(v.videoId, { tags: adding ? [...v.tags, r.value.tag] : v.tags.filter((t) => t !== r.value.tag) });
-        }
-        fence.markApplied();
-        lastTag = r.value.tag;
-      }
-      return ok({ updated: found.map((v) => v.videoId), tags });
+      if (missing.length > 0) return refuse(REFUSAL_REASON.noSuchVideo, `Not among the loaded videos: ${missing.join(', ')}. Nothing was changed.`);
+      // Planned whole against the videos as they are now, then written once per
+      // video with its final tags — never read back between tags (Gate C).
+      const plan = planTags(found, tags, adding, confirmed);
+      if (!plan.ok) return plan;
+      for (const n of plan.value.next) deps.annotations.annotate(n.videoId, { tags: n.tags });
+      return ok({ updated: plan.value.changed, unchanged: plan.value.unchanged, tags: plan.value.tags });
     }, () => (ids.length === 1 && tags.length === 1 ? { kind: 'tag', videoId: ids[0] ?? '', tag: tags[0]?.trim().toLowerCase() ?? '', added: adding } : null));
   }
 
