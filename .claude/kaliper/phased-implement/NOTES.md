@@ -196,6 +196,33 @@ nobody pointed it.
 **What actually caught them.** Driving the application and reading the output.
 In four of the seven the defect was visible in a single line of screen text.
 
+### 2026-09-13 — the break-it script could report success having proved nothing
+
+**What happened.** The T089 pass counted any non-zero exit from `npm test` as a
+mutation proved. A runner that failed to start, or an unrelated pre-existing
+failure, would have printed *"9 of 9 checks proved"* and exited zero. A missing
+anchor — a guard that had moved or been reformatted — was skipped without being
+counted at all, so with every anchor stale the script reported *"0 of 0 proved"*
+and passed.
+
+**Why it matters more than an ordinary bug.** This is the tool whose entire
+purpose is to catch tests that cannot fail, and it had the same defect. It was
+green while proving nothing, which is precisely the condition it exists to
+detect.
+
+**Fixed three ways.** A baseline run must be green before any mutation is
+attempted. Each check now names the test it must break, and the mutation only
+counts if THAT test is the one that failed — a suite going red somewhere else
+proves nothing about this guard. And a stale anchor is counted as UNPROVED and
+fails the pass, rather than quietly shrinking coverage as the source moves.
+
+**Verified by sabotaging the script itself:** breaking one anchor produces
+`STALE`, `8 of 9`, and exit 1.
+
+**Standing rule.** A verification tool needs verifying. Ask what it prints when
+it is given nothing to check — if that is indistinguishable from success, it is
+not a check.
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

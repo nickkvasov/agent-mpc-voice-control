@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { refuseUnavailableView, viewOwning, isDeclared } from '../../src/mcp/tool-availability.ts';
+import { refuseUnavailableView, refuseUnsupportedCapability, viewOwning, isDeclared } from '../../src/mcp/tool-availability.ts';
 import { TOOL } from '../../src/vocab/tool-names.ts';
 import { REFUSAL_REASON } from '../../src/vocab/refusal-reasons.ts';
 
@@ -34,5 +34,19 @@ describe('unavailable view', () => {
     for (const tool of Object.values(TOOL)) {
       expect(viewOwning(tool), tool).not.toBeNull();
     }
+  });
+});
+
+describe('unbuilt capability is not a closed view', () => {
+  it('says it is not built, and recommends nothing that cannot help', () => {
+    const r = refuseUnsupportedCapability(TOOL.playbackNext);
+    expect(r.reason).toBe(REFUSAL_REASON.capabilityUnsupported);
+    expect(r.detail).toMatch(/not available in this build yet/);
+    expect(r.detail).not.toMatch(/Open /);
+  });
+
+  it('is a different reason from a closed view', () => {
+    expect(refuseUnsupportedCapability(TOOL.queueAdd).reason)
+      .not.toBe(refuseUnavailableView(TOOL.queueAdd).reason);
   });
 });

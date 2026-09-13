@@ -14,7 +14,7 @@ import { CurationView } from './curation/curation-view.tsx';
 import { PrivacyDisclosure } from './app/privacy-disclosure.tsx';
 import { ConnectionStatus, type ConnectionState } from './mcp/connection-status.tsx';
 import { HistoryControls } from './app/history-controls.tsx';
-import { refuseUnavailableView } from './mcp/tool-availability.ts';
+import { refuseUnsupportedCapability } from './mcp/tool-availability.ts';
 import {
   createCollection, deleteCollection, EMPTY_COLLECTIONS, type CollectionsState,
 } from './curation/collections.ts';
@@ -166,6 +166,8 @@ export function App() {
   const connectionReason = 'No agent gateway is configured for this deployment yet.';
 
   const [commandCount, setCommandCount] = useState(0);
+  /** Whether voice is actually usable — the disclosure must not contradict it. */
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
 
   const [storageDurable, setStorageDurable] = useState<boolean | null>(null);
   const stores = useRef<Awaited<ReturnType<typeof openStores>> | null>(null);
@@ -229,8 +231,22 @@ export function App() {
   const run = useCallback(
     async (text: string) => {
       setHeard(text);
-      setCommandCount((n) => n + 1);
       const m = matchPlaybackCommand(text);
+      void stores.current?.stores.commands
+        .append({
+          commandId: `cmd${String(Date.now())}`,
+          modality: 'text',
+          rawText: text,
+          interpretation: m.matched ? m.match.interpretation : 'not understood',
+          route: m.matched ? 'local_matcher' : 'agent',
+          receivedAt: Date.now(),
+          outcome: m.matched ? 'applied' : 'refused',
+          refusalReason: m.matched ? null : 'no_match',
+        })
+        .then(async () => {
+          const all = await stores.current?.stores.commands.all();
+          setCommandCount(all?.length ?? 0);
+        });
       if (!m.matched) {
         // The matcher never guesses. With no agent connected there is nowhere
         // to fall through to, so this is refused with a reason (FR-034/FR-037).
@@ -255,10 +271,10 @@ export function App() {
           case TOOL.playbackSetVolume: return setVolume(p, i['volume'] as number);
           case TOOL.playbackSetMuted: return setMuted(p, i['muted'] as boolean);
           case TOOL.playbackSetCaptions: return setCaptions(p, { enabled: i['enabled'] as boolean });
-          // FR-035: name the view that owns it rather than reporting a
-          // generic failure, which would send someone hunting for a bug in
-          // something that is merely not on screen.
-          default: return refuseUnavailableView(m.match.tool);
+          // Not built yet — which is NOT the same as "the view is closed".
+          // The player is on screen; telling someone to open it would
+          // recommend an action that cannot help (Gate C).
+          default: return refuseUnsupportedCapability(m.match.tool);
         }
       };
       // Through the recorded boundary, so a local command leaves an entry just
@@ -466,7 +482,7 @@ export function App() {
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
       <h1>Voice Video Control</h1>
       <ConnectionStatus state={connection} reason={connection === 'unavailable' ? connectionReason : null} />
-      <PushToTalk onUtterance={(pending) => enqueue(() => pending)} />
+      <PushToTalk onUtterance={(pending) => enqueue(() => pending)} onAvailabilityChange={setVoiceAvailable} />
       <CommandInput onCommand={(t) => enqueue(() => Promise.resolve(t))} />
       <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
       <section data-testid="discovery" style={{ margin: '0.5rem 0' }}>
@@ -680,6 +696,11 @@ export function App() {
         onClear={() => {
           void stores.current?.stores.commands.clear();
           setCommandCount(0);
+          // The transcript on screen IS retained text. Reporting it deleted
+          // while it is still being displayed would be the disclosure
+          // contradicting itself (Gate C, FR-041).
+          setHeard(null);
+          setInterpretation(null);
           setOutcome('Command history cleared from this device.');
         }}
       />
@@ -733,7 +754,7 @@ export function App() {
         captionsTrack={track === '' ? null : track}
         onCommand={(t) => enqueue(() => Promise.resolve(t))}
       />
-      <PrivacyDisclosure voiceAvailable={false} assistantConnected={connection === 'connected'} />
+      <PrivacyDisclosure voiceAvailable={voiceAvailable} assistantConnected={connection === 'connected'} />
     </main>
   );
 }

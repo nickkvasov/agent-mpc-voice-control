@@ -30,11 +30,13 @@ export interface PushToTalkProps {
    * (FR-038).
    */
   readonly onUtterance: (pending: Promise<string>) => void;
+  /** So the privacy disclosure can state what is actually true right now. */
+  readonly onAvailabilityChange?: (available: boolean) => void;
 }
 
 type Phase = 'unprobed' | 'probing' | VoiceAvailability | 'installing';
 
-export function PushToTalk({ onUtterance }: PushToTalkProps) {
+export function PushToTalk({ onUtterance, onAvailabilityChange }: PushToTalkProps) {
   const [phase, setPhase] = useState<Phase>('unprobed');
   const [detail, setDetail] = useState('Press and hold to talk. Voice is checked the first time you use it.');
   const [capturing, setCapturing] = useState(false);
@@ -63,6 +65,7 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
     const r = await probeOnDeviceRecognition();
     setPhase(r.availability);
     setDetail(r.detail);
+    onAvailabilityChange?.(r.availability === 'available');
     return r.availability;
   }, []);
 
@@ -142,6 +145,7 @@ export function PushToTalk({ onUtterance }: PushToTalkProps) {
             void installLanguagePack().then((r) => {
               setPhase(r.availability);
               setDetail(r.detail);
+              onAvailabilityChange?.(r.availability === 'available');
             });
           }}
         >

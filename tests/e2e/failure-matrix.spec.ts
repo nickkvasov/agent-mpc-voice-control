@@ -37,9 +37,14 @@ test.describe('failure matrix', () => {
     await expect(outcome(page)).toContainText('by hand');
   });
 
-  test('an unwired capability names the view that owns it', async ({ page }) => {
+  test('an unbuilt capability says so, and does NOT tell you to open a view that is already open', async ({ page }) => {
+    // This test previously asserted "the player", which was the defect: the
+    // player is right there on screen, so recommending that someone open it
+    // cannot resolve anything (Gate C).
     await send(page, 'next');
-    await expect(outcome(page)).toContainText('the player');
+    await expect(outcome(page)).toContainText('not available in this build yet');
+    await expect(outcome(page)).toContainText('Nothing was changed');
+    await expect(outcome(page)).not.toContainText('Open the player');
   });
 
   test('pausing when nothing plays says so rather than failing silently', async ({ page }) => {
