@@ -71,6 +71,7 @@ export const TOOL_DOMAINS: Readonly<Record<ToolName, Declared>> = {
   [TOOL.curationSetLabel]: C,
   [TOOL.curationAddTags]: C,
   [TOOL.curationRemoveTags]: C,
+  [TOOL.curationGetCollections]: NONE,
 
   [TOOL.activityList]: NONE,
   [TOOL.activityUndo]: PER_ENTRY,
@@ -84,6 +85,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<ToolName> = new Set([
   TOOL.catalogResolveReference,
   TOOL.catalogGetQuota,
   TOOL.queueGet,
+  TOOL.curationGetCollections,
   TOOL.activityList,
   TOOL.activityDescribeRecent,
 ]);

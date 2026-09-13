@@ -32,7 +32,7 @@ export function RecordView({ entries, onUndo, eligibilityContext = {} }: RecordV
           {ordered.map((e) => {
             const state = eligibility(e, entries, eligibilityContext).state;
             return (
-              <li key={e.entryId} data-testid="activity-entry" style={{ marginBottom: '0.4rem' }}>
+              <li key={e.entryId} data-testid="activity-entry" data-command-id={e.commandId ?? ''} style={{ marginBottom: '0.4rem' }}>
                 <div data-testid="activity-description">
                   {e.description}
                   {e.result === 'failed' ? ' — refused' : e.result === 'partially_applied' ? ' — partly applied' : ''}

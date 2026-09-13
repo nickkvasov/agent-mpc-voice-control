@@ -28,6 +28,7 @@ const SAMPLES: Readonly<Record<ToolName, readonly Record<string, unknown>[]>> = 
   [TOOL.curationSetLabel]: [{ videoId: V, label: 'Q3 retro' }, { videoId: V, label: null }],
   [TOOL.curationAddTags]: [{ videoIds: [V], tags: ['onboarding'] }],
   [TOOL.curationRemoveTags]: [{ videoIds: [V], tags: ['onboarding'] }],
+  [TOOL.curationGetCollections]: [{}],
   [TOOL.activityList]: [{}, { limit: 10 }], [TOOL.activityUndo]: [{ entryId: 'e1' }], [TOOL.activityDescribeRecent]: [{}, { count: 3 }],
 };
 

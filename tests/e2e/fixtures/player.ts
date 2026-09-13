@@ -9,9 +9,20 @@ import { resolve } from 'node:path';
  */
 const FAKE_API = readFileSync(resolve(import.meta.dirname, 'fake-iframe-api.js'), 'utf8');
 
-export const test = base.extend<{ fakeYouTube: void }>({
+export const test = base.extend<{ assistant: 'absent' | 'scripted'; fakeYouTube: void }>({
+  /**
+   * Whether this test has an assistant. The e2e backend is always running (for
+   * the Phase 13 specs), so a test that is about the assistant being ABSENT must
+   * say so: it blocks the ticket, and the page is genuinely unconnected. Before
+   * Phase 13 these tests passed only because no backend happened to be running.
+   */
+  assistant: ['absent', { option: true }],
   fakeYouTube: [
-    async ({ page }, use) => {
+    async ({ page, assistant }, use) => {
+      if (assistant === 'absent') {
+        await page.route('**/api/mcp-ticket', (route) => route.abort());
+        await page.route('**/api/assistant/turns', (route) => route.abort());
+      }
       // Registration order matters: Playwright gives the MOST RECENTLY registered
       // matching route precedence, so the catch-all abort goes first and the
       // fake API after it. The other way round aborted the fake itself.

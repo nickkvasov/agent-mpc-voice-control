@@ -413,6 +413,31 @@ rule now: only a turn that called no tool says nothing was done, and an unfinish
 anything is `partially_applied`, with why it stopped as the reason. The allowance reset on an idle
 page is App wiring with no unit seam; its e2e is part of T135.
 
+### 2026-09-14 — Phase 13: what driving the stories through the assistant exposed
+
+Writing the conversational specs found three things no earlier test could reach, because every earlier
+test drove the page by hand or the model with the tools it happened to be given:
+
+- **The assistant could not name an existing collection.** No tool listed collections, so removal and
+  deletion by the assistant worked only on a collection created in the same turn. `curation.getCollections`
+  added, contract updated.
+- **The results view could not be closed**, so FR-035 for catalog tools was untestable; and when a view
+  closed mid-turn, the loop resolved the model's tool name through the *current* listing only and sent
+  the page `catalog__resolveReference`. The page could not say which view to open. Now names persist for
+  the turn, and a failed call to an undeclared tool is `view_not_open`, naming the view. Break-it caught
+  the first version of that e2e passing without the name fix: the model's delay ran *after* the step's
+  listing, so the view closed too late to matter.
+- **Tests about an absent assistant were absent by accident.** With a scripted backend now always
+  running under `test:e2e`, they block the ticket explicitly (fixture option `assistant: 'absent'`).
+
+**Gate B (real model).** `curation.getCollections` → removal → the prompt → "maybe" → refused, nothing
+removed; and with results hidden the model said to open them. It also found the confirmation asking
+`Remove Qa6csfkK7_I from "Favourites"?` — an id is not a name a person can confirm (FR-026) — and the
+refusal saying "…? Confirm to go ahead." after the person had already answered, which the model relayed
+as an invitation to confirm again. Questions and record entries now name videos by label or title, and a
+declined confirmation says what was asked and what was answered. Re-run live: the model reported
+"Nothing was removed… 'maybe' doesn't count as a yes."
+
 ## Decisions that go to codex
 
 ### 2026-09-12 — does the activity record cover calls refused before the handler ran?

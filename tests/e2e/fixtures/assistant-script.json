@@ -1,0 +1,210 @@
+{
+  "turns": {
+    "go back a bit": [
+      {
+        "tool": "playback.seek",
+        "input": {
+          "mode": "relative",
+          "seconds": -10
+        }
+      },
+      {
+        "text": "Went back ten seconds."
+      }
+    ],
+    "go back a little, slowly": [
+      {
+        "tool": "playback.seek",
+        "input": {
+          "mode": "relative",
+          "seconds": -10
+        },
+        "delayMs": 1500
+      },
+      {
+        "text": "Tried to go back ten seconds."
+      }
+    ],
+    "find talks about state machines": [
+      {
+        "tool": "catalog.search",
+        "input": {
+          "query": "state machines"
+        }
+      },
+      {
+        "text": "Found five."
+      }
+    ],
+    "only the short ones": [
+      {
+        "tool": "catalog.narrow",
+        "input": {
+          "maxDurationSeconds": 600
+        }
+      },
+      {
+        "text": "Three of them are under ten minutes."
+      }
+    ],
+    "play the third one": [
+      {
+        "tool": "catalog.resolveReference",
+        "input": {
+          "reference": "the third one"
+        }
+      },
+      {
+        "tool": "playback.playVideo",
+        "input": {
+          "videoId": "shortthree1"
+        }
+      },
+      {
+        "text": "Playing Short three."
+      }
+    ],
+    "play the first one": [
+      {
+        "tool": "catalog.getCurrentResults"
+      },
+      {
+        "tool": "playback.getState",
+        "delayMs": 1500
+      },
+      {
+        "tool": "catalog.resolveReference",
+        "input": {
+          "reference": "the first one"
+        }
+      },
+      {
+        "text": "I could not: {{lastResult}}"
+      }
+    ],
+    "queue this and go back a bit": [
+      {
+        "tool": "queue.add",
+        "input": {
+          "videoIds": [
+            "M7lc1UVf-VE"
+          ]
+        }
+      },
+      {
+        "tool": "playback.seek",
+        "input": {
+          "mode": "relative",
+          "seconds": -10
+        }
+      },
+      {
+        "text": "Queued it and went back ten seconds."
+      }
+    ],
+    "what did you just do?": [
+      {
+        "tool": "activity.describeRecent",
+        "input": {
+          "count": 2
+        }
+      },
+      {
+        "text": "{{lastResult}}"
+      }
+    ],
+    "seek sideways": [
+      {
+        "tool": "playback.seek",
+        "input": {
+          "mode": "sideways",
+          "seconds": 5
+        }
+      },
+      {
+        "text": "That seek was refused."
+      }
+    ],
+    "list what you did": [
+      {
+        "tool": "activity.list",
+        "input": {
+          "limit": 10
+        }
+      },
+      {
+        "text": "{{lastResult}}"
+      }
+    ],
+    "take the first talk out of favourites": [
+      {
+        "tool": "curation.getCollections"
+      },
+      {
+        "tool": "curation.removeFromCollection",
+        "input": {
+          "collectionId": "{{lastResult:value.collections.0.collectionId}}",
+          "videoIds": [
+            "firsttalk01"
+          ]
+        }
+      },
+      {
+        "text": "{{lastResult}}"
+      }
+    ],
+    "yes, take the first talk out of favourites": [
+      {
+        "tool": "curation.getCollections"
+      },
+      {
+        "tool": "curation.removeFromCollection",
+        "input": {
+          "collectionId": "{{lastResult:value.collections.0.collectionId}}",
+          "videoIds": [
+            "firsttalk01"
+          ]
+        }
+      },
+      {
+        "text": "{{lastResult}}"
+      }
+    ],
+    "queue all six talks": [
+      {
+        "tool": "queue.add",
+        "input": {
+          "videoIds": [
+            "firsttalk01",
+            "secondtalk1",
+            "thirdtalk01",
+            "fourthtalk1",
+            "fifthtalk01",
+            "sixthtalk01"
+          ]
+        }
+      },
+      {
+        "text": "{{lastResult}}"
+      }
+    ],
+    "queue all six talks, all 6": [
+      {
+        "tool": "queue.add",
+        "input": {
+          "videoIds": [
+            "firsttalk01",
+            "secondtalk1",
+            "thirdtalk01",
+            "fourthtalk1",
+            "fifthtalk01",
+            "sixthtalk01"
+          ]
+        }
+      },
+      {
+        "text": "{{lastResult}}"
+      }
+    ]
+  }
+}

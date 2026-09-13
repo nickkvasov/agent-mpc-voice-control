@@ -83,7 +83,9 @@ describe('tool listing on a live connection (T119)', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(await connection?.listTools()).toEqual([]);
     const outcome = await connection?.callTool('curation.createCollection', { name: 'x', commandId: 'cmd-1' });
-    expect(outcome).toMatchObject({ ok: false });
+    // FR-035: not a transport error, and not a generic failure — the view it needs, by name (T136).
+    expect(outcome).toMatchObject({ ok: false, reason: 'view_not_open' });
+    expect(outcome?.ok === false ? outcome.detail : '').toContain('the collections panel');
     dialed.page.close();
   });
 });

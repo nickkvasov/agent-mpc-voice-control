@@ -78,6 +78,7 @@ export const BUSINESS_SCHEMAS: Readonly<Record<ToolName, ObjectSchema>> = {
   [TOOL.curationSetLabel]: obj({ videoId, label: { type: ['string', 'null'] } }, ['videoId', 'label']),
   [TOOL.curationAddTags]: obj({ videoIds, tags: { type: 'array', items: nonEmpty, minItems: 1 } }, ['videoIds', 'tags']),
   [TOOL.curationRemoveTags]: obj({ videoIds, tags: { type: 'array', items: nonEmpty, minItems: 1 } }, ['videoIds', 'tags']),
+  [TOOL.curationGetCollections]: obj(),
 
   [TOOL.activityList]: obj({ limit: { type: 'integer', minimum: 1, maximum: 200 } }),
   [TOOL.activityUndo]: obj({ entryId: nonEmpty }, ['entryId']),

@@ -377,3 +377,51 @@ describe('Phase 12 Gate B: a turn cancelled while its search is on the network',
     expect(recorder.entries().find((e) => e.toolName === TOOL.catalogSearch)).toMatchObject({ result: 'failed', refusalReason: REFUSAL_REASON.commandCancelled });
   });
 });
+
+describe('Phase 13 Gate B: what a confirmation says', () => {
+  const T = 'Qa6csfkK7_I';
+  const withCollection = async (answer: string | null, videos: readonly VideoReference[] = [makeVideoReference({ videoId: T, title: 'Finite State Machine (Finite Automata)', channelTitle: 'c', publishedAt: 0 })]) => {
+    const s = setup([], { videos, answer: (q) => (q.startsWith('Remove') ? answer : null) });
+    const made = await s.actions[TOOL.curationCreateCollection](s.commands.issue('manual'), { name: 'Favourites' });
+    const collectionId = made.ok ? (made.value as { collectionId: string }).collectionId : '';
+    await s.actions[TOOL.curationAddToCollection](s.commands.issue('manual'), { collectionId, videoIds: [T] });
+    const r = await s.actions[TOOL.curationRemoveFromCollection](s.commands.issue('agent'), { collectionId, videoIds: [T] });
+    return { ...s, r };
+  };
+
+  it('names the video by its title, not an id nobody recognises (FR-026)', async () => {
+    const { asked } = await withCollection('maybe');
+    expect(asked.at(-1)).toBe('Remove "Finite State Machine (Finite Automata)" from "Favourites"?');
+  });
+
+  it('falls back to the id when the page does not know the title', async () => {
+    const { asked } = await withCollection('maybe', []);
+    expect(asked.at(-1)).toBe(`Remove ${T} from "Favourites"?`);
+  });
+
+  it('an unclear answer is reported as asked-and-not-confirmed, never as a question still waiting (FR-028)', async () => {
+    const { r, recorder } = await withCollection('maybe');
+    expect(r.ok ? '' : r.reason).toBe(REFUSAL_REASON.needsConfirmation);
+    const detail = r.ok ? '' : r.detail;
+    expect(detail).not.toMatch(/Confirm to go ahead/);
+    expect(detail).toContain('Remove "Finite State Machine (Finite Automata)" from "Favourites"?');
+    expect(detail).toContain('"maybe"');
+    expect(detail).toMatch(/Nothing was changed/);
+    // The record says the same, since it is what "what did you just do?" reads.
+    expect(recorder.entries().at(-1)?.failureDetail).toBe(detail);
+  });
+
+  it('the record names the video the same way, since the record is read back to the person (FR-029)', async () => {
+    const { recorder } = await withCollection('maybe');
+    expect(recorder.entries().map((e) => e.description)).toEqual([
+      'Create collection "Favourites"',
+      'Add "Finite State Machine (Finite Automata)" to "Favourites"',
+      'Remove "Finite State Machine (Finite Automata)" from "Favourites"',
+    ]);
+  });
+
+  it('a dismissed question says it was dismissed', async () => {
+    const { r } = await withCollection(null);
+    expect(r.ok ? '' : r.detail).toMatch(/dismissed/);
+  });
+});

@@ -1,5 +1,6 @@
 import type { Client } from '@modelcontextprotocol/client';
 import type { ToolCallOutcome, ToolDescriptor, ToolTransport } from '../agent/loop.ts';
+import { refuseUnavailableView } from '../../src/mcp/tool-availability.ts';
 
 /**
  * One page's MCP server, as the agent loop sees it (T123, research R6).
@@ -31,7 +32,18 @@ export function pageConnection(sessionId: string, tabId: string, client: Client)
     process.stdout.write(`[gateway] page announced a tool change (session ${sessionId.slice(0, 8)}…, tab ${tabId.slice(0, 8)})\n`);
   });
 
-  return {
+  /**
+   * A failed call to a tool the page does not declare right now is FR-035's
+   * case, not a transport fault: its view is closed, and the model is told which
+   * one to open. Asked after the failure, from the listing the page's own
+   * `list_changed` keeps current.
+   */
+  const whenUndeclared = async (name: string, otherwise: ToolCallOutcome): Promise<ToolCallOutcome> => {
+    const declared = await connection.listTools().catch(() => null);
+    return declared !== null && !declared.some((t) => t.name === name) ? refuseUnavailableView(name) : otherwise;
+  };
+
+  const connection: PageConnection = {
     sessionId,
     tabId,
     listRequests: () => requests,
@@ -61,14 +73,14 @@ export function pageConnection(sessionId: string, tabId: string, client: Client)
       } catch (cause) {
         // A protocol failure — no such tool, a closed channel — is information
         // the model can act on, not a thrown error that ends the turn.
-        return { ok: false, reason: 'tool_unavailable', detail: cause instanceof Error ? cause.message : String(cause) };
+        return whenUndeclared(name, { ok: false, reason: 'tool_unavailable', detail: cause instanceof Error ? cause.message : String(cause) });
       }
       const text = (result.content as readonly { type: string; text?: string }[] | undefined)
         ?.filter((c) => c.type === 'text')
         .map((c) => c.text ?? '')
         .join('') ?? '';
       if (result.isError === true) {
-        return { ok: false, reason: 'tool_error', detail: text === '' ? `${name} failed and said nothing more.` : text };
+        return whenUndeclared(name, { ok: false, reason: 'tool_error', detail: text === '' ? `${name} failed and said nothing more.` : text });
       }
       let parsed: unknown;
       try {
@@ -88,4 +100,5 @@ export function pageConnection(sessionId: string, tabId: string, client: Client)
     },
     close: () => client.close(),
   };
+  return connection;
 }

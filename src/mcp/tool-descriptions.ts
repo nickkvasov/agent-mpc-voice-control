@@ -38,6 +38,7 @@ export const TOOL_DESCRIPTIONS: Readonly<Record<ToolName, string>> = {
   [TOOL.curationSetLabel]: 'Give a video a personal label shown in place of its title here. The YouTube title is never changed. Null clears it.',
   [TOOL.curationAddTags]: 'Add tags to videos.',
   [TOOL.curationRemoveTags]: 'Remove tags from videos.',
+  [TOOL.curationGetCollections]: 'Read your collections: each one\'s id, name and videos. Changes nothing. Use it to find the collectionId the other curation tools need.',
   [TOOL.activityList]: 'Read the activity record: every action taken, including refusals. Changes nothing.',
   [TOOL.activityUndo]: 'Undo a reversible entry in the activity record, not only the most recent. Refuses, naming the later entry, when it can no longer be undone.',
   [TOOL.activityDescribeRecent]: 'Describe what was done recently, straight from the activity record. Use this to answer "what did you just do?".',
@@ -54,7 +55,7 @@ export const VIEW_TOOLS = {
   queue: [TOOL.queueAdd, TOOL.queueRemove, TOOL.queueReorder, TOOL.queueClear, TOOL.queueGet],
   curation: [
     TOOL.curationCreateCollection, TOOL.curationAddToCollection, TOOL.curationRemoveFromCollection,
-    TOOL.curationDeleteCollection, TOOL.curationSetLabel, TOOL.curationAddTags, TOOL.curationRemoveTags,
+    TOOL.curationDeleteCollection, TOOL.curationSetLabel, TOOL.curationAddTags, TOOL.curationRemoveTags, TOOL.curationGetCollections,
   ],
   activity: [TOOL.activityList, TOOL.activityUndo, TOOL.activityDescribeRecent],
 } as const satisfies Readonly<Record<string, readonly ToolName[]>>;

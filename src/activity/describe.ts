@@ -8,6 +8,8 @@ import { eligibility, type EligibilityContext, type EntryLike } from './superses
  */
 export interface DescribableEntry extends EntryLike {
   readonly entryId: string;
+  /** The command this entry served, so the record can be read per command (R7). */
+  readonly commandId?: string | null;
   readonly description: string;
   readonly failureDetail: string | null;
   readonly at: number;

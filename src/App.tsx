@@ -162,6 +162,8 @@ export function App() {
    */
   const [showCollections, setShowCollections] = useState(true);
   const [showQueue, setShowQueue] = useState(true);
+  // The results view can be closed like the others, and its tools go with it (FR-035, T136).
+  const [showResults, setShowResults] = useState(true);
 
   /** From the real connection (T134); a spent allowance overrides it until it resets. */
   const mcpConnection = useMcpConnection();
@@ -226,6 +228,7 @@ export function App() {
     setActivity(
       recorder.entries().map((e) => ({
         entryId: e.entryId,
+        commandId: e.commandId,
         sequence: e.sequence,
         effect: e.effect,
         result: e.result,
@@ -510,7 +513,7 @@ export function App() {
           </button>
         </form>
       </section>
-      <ResultsView
+      {showResults && <ResultsView
         results={results}
         quota={quota}
         onPlay={(id) => {
@@ -530,8 +533,11 @@ export function App() {
           void perform(TOOL.curationAddToCollection, { collectionId: wanted, videoIds: [id] }, () => `Added to "${name}".`);
         }}
         onQueue={(id) => void perform(TOOL.queueAdd, { videoIds: [id] }, () => `Queued ${id}.`)}
-      />
+      />}
       <p style={{ margin: '0.25rem 0' }}>
+        <button type="button" data-testid="toggle-results" onClick={() => setShowResults((v) => !v)}>
+          {showResults ? 'Hide results' : 'Show results'}
+        </button>{' '}
         <button type="button" data-testid="toggle-collections" onClick={() => setShowCollections((v) => !v)}>
           {showCollections ? 'Hide collections' : 'Show collections'}
         </button>{' '}

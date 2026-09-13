@@ -98,6 +98,29 @@ const optionalCriteria = (input: Record<string, unknown>, keys: readonly (keyof 
 export function createToolActions(deps: ToolActionDeps): ToolActions {
   const search = deps.search ?? ((c: Criteria) => defaultSearch(c));
 
+  /**
+   * What each call asked the person and whether the answer confirmed it, keyed
+   * by the call's own input object. A domain function refusing
+   * `needs_confirmation` cannot know the person was already asked, so it said
+   * "…? Confirm to go ahead." — which read as a question still open. The live
+   * assistant took it that way and invited the person to confirm again after
+   * they had answered "maybe" (Phase 13 Gate B). The refusal now says what was
+   * asked and what was answered.
+   */
+  const askedByCall = new WeakMap<Record<string, unknown>, { question: string; answer: string | null; confirmed: boolean }[]>();
+  const noteAsked = (input: Record<string, unknown>, question: string, answer: string | null, confirmed: boolean): void => {
+    askedByCall.set(input, [...(askedByCall.get(input) ?? []), { question, answer, confirmed }]);
+  };
+  const explainDeclined = <T>(input: Record<string, unknown>, r: ToolResult<T>): ToolResult<T> => {
+    const declined = askedByCall.get(input)?.find((a) => !a.confirmed);
+    if (r.ok || r.reason !== REFUSAL_REASON.needsConfirmation || declined === undefined) return r;
+    const answer = declined.answer?.trim() ?? '';
+    const said = answer === ''
+      ? 'the question was dismissed'
+      : `the answer "${answer.length > 60 ? `${answer.slice(0, 60)}…` : answer}" did not confirm it`;
+    return refuse(REFUSAL_REASON.needsConfirmation, `Not done: the person was asked “${declined.question}” and ${said}. Nothing was changed.`);
+  };
+
   /** The one path: record → order → act. */
   const run = async <T>(
     /** The call's signal; an action still waiting for its domain does not apply once it aborts. */
@@ -111,9 +134,9 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     domains: readonly CommandDomain[] = domainsOf(tool),
   ): Promise<ToolResult<unknown>> => {
     try {
-      return await invokeRecorded(
+      return await invokeRecorded<T>(
         deps.recorder, tool, input, describe,
-        () => deps.scheduler.run(command, domains, body, signal),
+        () => deps.scheduler.run(command, domains, body, signal).then((r): ToolResult<T> => explainDeclined(input, r)),
         effectOf, command.commandId,
       );
     } finally {
@@ -128,8 +151,20 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
   };
 
   /** A counted confirmation above the bulk threshold; the count must be said back (FR-027). */
-  const countedAbove = (count: number, question: string): number | undefined =>
-    count > BULK_THRESHOLD && resolveCountedConfirmation(deps.ask(question), count) === 'confirmed' ? count : undefined;
+  const countedAbove = (input: Record<string, unknown>, count: number, question: string): number | undefined => {
+    if (count <= BULK_THRESHOLD) return undefined;
+    const answer = deps.ask(question);
+    const confirmed = resolveCountedConfirmation(answer, count) === 'confirmed';
+    noteAsked(input, question, answer, confirmed);
+    return confirmed ? count : undefined;
+  };
+
+  /** Videos as the person knows them: their label or title, quoted; the id only when neither is known (FR-026). */
+  const namedVideos = (ids: readonly string[]): string =>
+    ids.map((id) => {
+      const v = deps.videos().find((x) => x.videoId === id);
+      return v === undefined ? id : `"${v.label ?? v.title}"`;
+    }).join(', ');
 
   /** YouTube's code for a REPORTED playing state. */
   const PLAYING_CODE = 1;
@@ -300,10 +335,10 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     [TOOL.queueAdd]: (c, i, sig) => {
       const ids = strs(i['videoIds']);
       const position = i['position'] === 'next' ? 'next' : 'end';
-      const confirmed = countedAbove(ids.length, `Queue ${String(ids.length)} videos? Type the number to confirm.`);
+      const confirmed = countedAbove(i, ids.length, `Queue ${String(ids.length)} videos? Type the number to confirm.`);
       // Taken when the change applies, inside the held domain — not when issued (Gate C).
       let before = new Set<string>();
-      return run(sig, TOOL.queueAdd, c, i, `Queue ${ids.join(', ')}`, () => {
+      return run(sig, TOOL.queueAdd, c, i, `Queue ${namedVideos(ids)}`, () => {
         before = new Set(deps.queue.get().items.map((e) => e.entryId));
         const r = queueAdd(deps.queue.get(), ids, position, confirmed);
         if (r.ok) deps.queue.set(r.value);
@@ -330,10 +365,10 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
         : issued.filter((e) => ids.includes(e.videoId)).length;
       // Replaced inside the held domain; the confirmation count above is what is revalidated.
       let snapshot = issued;
-      const confirmed = countedAbove(matching, `Remove ${String(matching)} queued videos? Type the number to confirm.`);
+      const confirmed = countedAbove(i, matching, `Remove ${String(matching)} queued videos? Type the number to confirm.`);
       const named = entryIds.length > 0
-        ? entryIds.map((id) => issued.find((e) => e.entryId === id)?.videoId ?? id).join(', ')
-        : ids.join(', ');
+        ? namedVideos(entryIds.map((id) => issued.find((e) => e.entryId === id)?.videoId ?? id))
+        : namedVideos(ids);
       return run(sig, TOOL.queueRemove, c, i, `Removed ${named} from the queue`, () => {
         snapshot = deps.queue.get().items;
         const r = entryIds.length > 0 ? removeEntries(deps.queue.get(), entryIds, confirmed) : removeVideo(deps.queue.get(), ids, confirmed);
@@ -355,7 +390,7 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       }),
     [TOOL.queueClear]: (c, i, sig) => {
       const count = deps.queue.get().items.length;
-      const confirmed = countedAbove(count, `Clear all ${String(count)} queued videos? Type the number to confirm.`);
+      const confirmed = countedAbove(i, count, `Clear all ${String(count)} queued videos? Type the number to confirm.`);
       return run(sig, TOOL.queueClear, c, i, 'Clear the queue', () => {
         const r = queueClear(deps.queue.get(), confirmed);
         if (r.ok) deps.queue.set(r.value);
@@ -377,8 +412,8 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       const target = deps.collections.get().items.find((x) => x.collectionId === collectionId);
       // The count that will actually change: videos already in it are not additions (Gate C).
       const additions = [...new Set(ids)].filter((id) => !(target?.videoIds.includes(id) ?? false)).length;
-      const confirmed = countedAbove(additions, `Add ${String(additions)} videos to "${target?.name ?? collectionId}"? Type the number to confirm.`);
-      return run(sig, TOOL.curationAddToCollection, c, i, `Add ${ids.join(', ')} to "${target?.name ?? collectionId}"`, () => {
+      const confirmed = countedAbove(i, additions, `Add ${String(additions)} videos to "${target?.name ?? collectionId}"? Type the number to confirm.`);
+      return run(sig, TOOL.curationAddToCollection, c, i, `Add ${namedVideos(ids)} to "${target?.name ?? collectionId}"`, () => {
         const r = addToCollection(deps.collections.get(), collectionId, ids, confirmed);
         if (r.ok) deps.collections.commit(r.value.state);
         return r;
@@ -395,14 +430,17 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       const target = deps.collections.get().items.find((x) => x.collectionId === collectionId);
       const name = target?.name ?? collectionId;
       // FR-026: names the specific target before discarding anything, for every caller.
-      const confirmed = resolveConfirmation(deps.ask(`Remove ${ids.join(', ')} from "${name}"?`)) === 'confirmed';
+      const question = `Remove ${namedVideos(ids)} from "${name}"?`;
+      const answer = deps.ask(question);
+      const confirmed = resolveConfirmation(answer) === 'confirmed';
+      noteAsked(i, question, answer, confirmed);
       const removals = [...new Set(ids)].filter((id) => target?.videoIds.includes(id) ?? false).length;
-      const counted = countedAbove(removals, `That removes ${String(removals)} videos from "${name}". Type the number to confirm.`);
+      const counted = countedAbove(i, removals, `That removes ${String(removals)} videos from "${name}". Type the number to confirm.`);
       // Where the video was when it is actually removed, read inside the held
       // domain: an index taken at issue time restores to the wrong place when
       // another removal applied first (Gate C).
       let indexBefore = 0;
-      return run(sig, TOOL.curationRemoveFromCollection, c, i, `Remove ${ids.join(', ')} from "${name}"`, () => {
+      return run(sig, TOOL.curationRemoveFromCollection, c, i, `Remove ${namedVideos(ids)} from "${name}"`, () => {
         indexBefore = ids.length === 1
           ? (deps.collections.get().items.find((x) => x.collectionId === collectionId)?.videoIds.indexOf(ids[0] ?? '') ?? 0)
           : 0;
@@ -419,8 +457,10 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       const target = deps.collections.get().items.find((x) => x.collectionId === collectionId);
       const count = target?.videoIds.length ?? 0;
       // FR-027: the count is said back, not merely approved.
-      const answer = deps.ask(`Delete "${target?.name ?? collectionId}" and the ${String(count)} video${count === 1 ? '' : 's'} in it? Type the number to confirm.`);
+      const question = `Delete "${target?.name ?? collectionId}" and the ${String(count)} video${count === 1 ? '' : 's'} in it? Type the number to confirm.`;
+      const answer = deps.ask(question);
       const confirmed = resolveCountedConfirmation(answer, count) === 'confirmed';
+      noteAsked(i, question, answer, confirmed);
       return run(sig, TOOL.curationDeleteCollection, c, i, `Delete collection "${target?.name ?? collectionId}"`, () => {
         const r = deleteCollection(deps.collections.get(), collectionId, confirmed ? count : undefined);
         if (r.ok) {
@@ -435,7 +475,7 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
       const videoId = str(i['videoId']);
       const raw = i['label'];
       const label = typeof raw === 'string' && raw.trim() !== '' ? raw : null;
-      return run(sig, TOOL.curationSetLabel, c, i, `Label ${videoId}`, () => {
+      return run(sig, TOOL.curationSetLabel, c, i, `Label ${namedVideos([videoId])}`, () => {
         const video = findVideos([videoId]).found[0];
         if (video === undefined) return refuse(REFUSAL_REASON.noSuchVideo, `${videoId} is not among the loaded videos, so it cannot be labelled here.`);
         const r = setLabel(video, label);
@@ -445,6 +485,9 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     },
     [TOOL.curationAddTags]: (c, i, sig) => tagAction(TOOL.curationAddTags, c, i, true, sig),
     [TOOL.curationRemoveTags]: (c, i, sig) => tagAction(TOOL.curationRemoveTags, c, i, false, sig),
+    // Without it the assistant could name no collection it had not created in the same turn (T138).
+    [TOOL.curationGetCollections]: (c, i, sig) => run(sig, TOOL.curationGetCollections, c, i, 'Read your collections', () =>
+      ok({ collections: deps.collections.get().items.map((x) => ({ collectionId: x.collectionId, name: x.name, videoIds: x.videoIds })) })),
 
     // ── activity ──────────────────────────────────────────────────────────
     [TOOL.activityList]: (c, i, sig) =>
@@ -504,8 +547,8 @@ export function createToolActions(deps: ToolActionDeps): ToolActions {
     // The count that will actually change, planned against current tags (Gate C).
     const preview = previewTags(findVideos(ids).found, tags, adding);
     const affected = preview.ok ? preview.value.changed.length : 0;
-    const confirmed = countedAbove(affected, `${adding ? 'Tag' : 'Untag'} ${String(affected)} videos? Type the number to confirm.`);
-    return run(sig, tool, c, i, `${adding ? 'Tag' : 'Untag'} ${ids.join(', ')} "${tags.join('", "')}"`, () => {
+    const confirmed = countedAbove(i, affected, `${adding ? 'Tag' : 'Untag'} ${String(affected)} videos? Type the number to confirm.`);
+    return run(sig, tool, c, i, `${adding ? 'Tag' : 'Untag'} ${namedVideos(ids)} "${tags.join('", "')}"`, () => {
       const { found, missing } = findVideos(ids);
       if (missing.length > 0) return refuse(REFUSAL_REASON.noSuchVideo, `Not among the loaded videos: ${missing.join(', ')}. Nothing was changed.`);
       // Planned whole against the videos as they are now, then written once per

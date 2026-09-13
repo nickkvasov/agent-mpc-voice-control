@@ -121,6 +121,14 @@ async function runTurn(
    * no longer on screen.
    */
   let lastTools: Anthropic.Tool[] = [];
+  /**
+   * Every API alias this turn has shown the model, back to its application
+   * name. A tool can leave the listing mid-turn — its view closed — while the
+   * model still calls it from an earlier step. Resolved through only the current
+   * listing, the page was sent `catalog__resolveReference`, a name it never had,
+   * and could not say which view to open (T136, FR-035).
+   */
+  const namesThisTurn = new Map<string, string>();
 
   for (let i = 0; i < MAX_ITERATIONS; i += 1) {
     // Asked every iteration, not once per turn: tools exist only while the UI
@@ -130,6 +138,7 @@ async function runTurn(
     // so this is a socket round trip only when the tools actually changed.
     const declared = await transport.listTools();
     const names = buildToolNameMap(declared.map((t) => t.name));
+    for (const [alias, name] of names.fromApi) namesThisTurn.set(alias, name);
     const fresh: Anthropic.Tool[] = declared.map((t) => ({
       name: names.toApi.get(t.name) ?? t.name,
       description: t.description,
@@ -172,7 +181,7 @@ async function runTurn(
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const use of uses) {
       // Back to the application's own name before it reaches the page.
-      const appName = names.fromApi.get(use.name) ?? use.name;
+      const appName = namesThisTurn.get(use.name) ?? use.name;
       onEvent?.({ type: 'tool_call', toolName: appName, input: use.input });
       const outcome = await transport.callTool(appName, use.input, signal);
       toolCalls.push({ name: appName, outcome });

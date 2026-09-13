@@ -23,7 +23,7 @@ export function TurnView({ turns, onCancel }: { turns: readonly TurnView[]; onCa
       <h2 style={{ fontSize: '1rem' }}>Assistant</h2>
       <ol>
         {turns.map((t) => (
-          <li key={t.commandId} data-testid="assistant-turn" data-state={t.state}>
+          <li key={t.commandId} data-testid="assistant-turn" data-state={t.state} data-command-id={t.commandId}>
             <strong>“{t.text}”</strong> — <span data-testid="turn-state">{LABEL[t.state]}</span>{' '}
             {(t.state === 'acknowledged' || t.state === 'running' || t.state === 'late') && (
               <button type="button" data-testid="turn-cancel" onClick={() => onCancel(t.commandId)}>Cancel</button>

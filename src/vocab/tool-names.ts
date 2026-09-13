@@ -39,6 +39,7 @@ export const TOOL = {
   curationSetLabel: 'curation.setLabel',
   curationAddTags: 'curation.addTags',
   curationRemoveTags: 'curation.removeTags',
+  curationGetCollections: 'curation.getCollections',
 
   activityList: 'activity.list',
   activityUndo: 'activity.undo',

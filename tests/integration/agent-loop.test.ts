@@ -80,4 +80,24 @@ describe('agent turn', () => {
     await runAgentTurn(client, t, 'hi');
     expect(spy).toHaveBeenCalledOnce();
   });
+
+  it('a tool that left the listing mid-turn is still called by its application name, so the page can say its view closed (T136)', async () => {
+    // The model saw catalog.resolveReference in the first step; the results view closed before the second.
+    const { client } = fakeClient([use('playback__pause', {}), use('catalog__resolveReference', { reference: 'the first one' }), say('ok')]);
+    const called: string[] = [];
+    let listings = 0;
+    const t: ToolTransport = {
+      listTools: async () => {
+        listings += 1;
+        const pause = { name: 'playback.pause', description: 'Pause', inputSchema: { type: 'object' } };
+        return listings === 1 ? [pause, { name: 'catalog.resolveReference', description: 'Resolve', inputSchema: { type: 'object' } }] : [pause];
+      },
+      callTool: async (n) => {
+        called.push(n);
+        return { ok: true, value: null };
+      },
+    };
+    await runAgentTurn(client, t, 'play the first one');
+    expect(called).toEqual(['playback.pause', 'catalog.resolveReference']);
+  });
 });

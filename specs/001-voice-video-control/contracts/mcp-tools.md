@@ -104,7 +104,7 @@ Domain `queue`.
 
 ## Curation — `curation.*`
 
-Domain `catalog_curation`. All mutate the person's own data. All are reversible, so all carry an `inverse` for FR-030.
+Domain `catalog_curation`. All but `curation.getCollections` mutate the person's own data; those are reversible, so they carry an `inverse` for FR-030.
 
 | Tool | Input | Returns | Confirmation |
 |---|---|---|---|
@@ -114,6 +114,7 @@ Domain `catalog_curation`. All mutate the person's own data. All are reversible,
 | `curation.deleteCollection` | `{ collectionId }` | `{ ok }` | **required**, naming the collection and its count |
 | `curation.setLabel` | `{ videoId, label: string \| null }` | `{ videoId, label, sourceTitleUnchanged: true }` | no — `sourceTitleUnchanged` is asserted in the result so FR-025 is observable |
 | `curation.addTags` / `curation.removeTags` | `{ videoIds[], tags[] }` | `{ updated[] }` | >5 videos |
+| `curation.getCollections` | `{}` | `{ collections: { collectionId, name, videoIds[] }[] }` | Read-only, no domain. Added in Phase 13: without it the assistant could name no collection it had not just created, so no removal or deletion by the assistant could find its target |
 
 A tool declaring `confirmation: 'required'` does not run until the resolver returns approval.
 An unclear response resolves to **refusal** (FR-028) — the resolver has no "assume yes" path.
