@@ -85,7 +85,10 @@ export function attachGateway(http: HttpServer, options: { readonly initializeTi
       const previous = sockets.get(key);
       sockets.set(key, ws);
       if (previous !== undefined) {
-        connections.delete(key);
+        // The published connection is gone from this moment, so say so here —
+        // the old socket's close handler no longer owns this key, and if the
+        // replacement never initializes, nothing else would (Gate C round 2).
+        if (connections.delete(key)) for (const l of closedListeners) l(sessionId, tabId);
         previous.close();
       }
 

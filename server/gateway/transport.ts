@@ -29,7 +29,9 @@ export function socketTransport(socket: WebSocket, onFrameError: (cause: Error) 
         try {
           message = deserializeMessage(frame);
         } catch (cause) {
-          const error = new Error(`the page sent a frame that is not JSON-RPC: ${frame.slice(0, 200)}`, { cause });
+          // JSON-encoded: the frame is the client's text, and a raw newline or
+          // terminal escape in it would forge an operator log line (Gate C round 2).
+          const error = new Error(`the page sent a frame that is not JSON-RPC: ${JSON.stringify(frame.slice(0, 200))}`, { cause });
           onFrameError(error);
           transport.onerror?.(error);
           return;

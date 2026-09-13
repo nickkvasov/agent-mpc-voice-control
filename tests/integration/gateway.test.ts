@@ -174,5 +174,44 @@ describe('gateway upgrade (T118)', () => {
       spy.mockRestore();
     }
   });
+
+  it('[Gate C round 2] a reconnect that fails before initializing still reports the tab closed, exactly once', async () => {
+    const { origin } = await start({ initializeTimeoutMs: 5000 });
+    const closed: string[] = [];
+    gateway?.onClosed((sessionId, tabId) => closed.push(`${sessionId}/${tabId}`));
+    const first = await dialPage(mintTicket(origin, 'session-10', 'tab-1').url, [pause]);
+    if (!('page' in first)) throw new Error('refused');
+    await gateway?.waitFor('session-10', 'tab-1', 2000);
+    const silent = new WebSocket(mintTicket(origin, 'session-10', 'tab-1').url);
+    await new Promise<void>((r) => silent.once('open', () => r()));
+    silent.close();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(closed).toEqual(['session-10/tab-1']);
+  });
+
+  it('[Gate C round 2] a malformed frame cannot forge a log line or send terminal escapes', async () => {
+    const { origin } = await start();
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const dialed = await dialPage(mintTicket(origin, 'session-11', 'tab-1').url, [pause]);
+      if (!('page' in dialed)) throw new Error('refused');
+      await gateway?.waitFor('session-11', 'tab-1', 2000);
+      dialed.page.socket.send('not-json\n[gateway] forged entry\u001b[2J');
+      await new Promise((r) => setTimeout(r, 50));
+      const report = written.filter((w) => w.includes('not JSON-RPC'));
+      expect(report).toHaveLength(1);
+      // One line, ending in its own newline; no raw newline or ESC from the frame inside it.
+      const line = (report[0] ?? '').slice(0, -1);
+      expect(line.includes('\n')).toBe(false);
+      expect(line.includes(String.fromCharCode(27))).toBe(false);
+      dialed.page.close();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
 
