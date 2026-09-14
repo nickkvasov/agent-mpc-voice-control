@@ -1,133 +1,162 @@
-# Voice Video Control — an `agent-mcp-react` demo
+# Adopting `agent-mcp-react` in a real application
 
-**A demo application built on [`agent-mcp-react`](https://github.com/A-Launch/agent-mcp-react) as its engine.** The React page is its own MCP server: every view publishes typed tools with the library, and a Claude assistant drives a YouTube library by calling those tools — from voice or typed commands — instead of automating the browser.
+**A worked example of [`agent-mcp-react`](https://github.com/A-Launch/agent-mcp-react) beyond the tutorial:** a complete React app — a YouTube library with a player, search, a queue, collections and an activity record — made operable by an AI assistant without browser automation and without a second API. Every pattern below is running code in this repository, including the parts the library deliberately leaves to you.
 
 <a href="docs/media/voice-video-tour-2026-09-14-1151.mp4">
-  <img src="docs/media/voice-video-tour-preview-2026-09-14-1151.webp" alt="A tour of the app: the assistant searches and narrows talks through the page's MCP tools, plays one, a typed pause overtakes its seek, a removal answered “maybe” is refused, and it explains what it did from the activity record." width="880">
+  <img src="docs/media/voice-video-tour-preview-2026-09-14-1151.webp" alt="The assistant drives the app only through the tools its views declared with agent-mcp-react: it searches and narrows, plays a video, has a stale seek refused after a human pause, is refused a removal answered “maybe”, and reports from the activity record." width="880">
 </a>
 
-**[Watch the full 3-minute tour (MP4)](docs/media/voice-video-tour-2026-09-14-1151.mp4)** — recorded on the running app with the real YouTube player, a real search and the real model. The preview above is a sped-up cut. Every assistant step in it is a tool call the page declared with `agent-mcp-react`.
+<sub>The app in use: every assistant step is a call to a tool the page declared. [Full recording (MP4)](docs/media/voice-video-tour-2026-09-14-1151.mp4).</sub>
 
-## The engine: `agent-mcp-react`
+## What the library gives you
 
-[`agent-mcp-react`](https://github.com/A-Launch/agent-mcp-react) exposes a running React application as an MCP server over an authenticated WebSocket — a second control interface onto the same actions the buttons call, not browser automation and not a second store. It is the browser half: the MCP server runs in the tab and connects out to a gateway.
+- **Your existing actions become the agent's interface.** A tool handler calls the same function a button calls. No parallel REST API to design and keep in sync, and no selectors that break when the markup changes.
+- **The agent's reach follows your UI.** A tool exists while the component declaring it is mounted. Close a panel and its tools are gone — the agent cannot act on a view the person cannot see.
+- **Input is validated before your code runs.** Each tool declares a JSON schema; a call that does not match it never reaches the handler.
+- **A narrow, explicit surface.** Application tools by default; DOM inspection, DOM interaction and JavaScript evaluation are separate capabilities you must spell out, and this app keeps all three off.
+- **Every call is observable.** Result and error callbacks report each call that arrives through the library's connection, including ones refused before a handler ran — the basis for an audit trail.
+- **Your app stays the owner of its state.** The agent reads and changes it only through handlers you wrote, so there is no second store to reconcile.
 
-This demo is what that looks like in a complete application. The library does the in-page work:
+## How this app adopts it
 
-| `agent-mcp-react` API | What it does in this app | Where |
-|---|---|---|
-| `AgentMcpProvider` | Turns the page into an MCP server: dials the gateway with a single-use ticket URL, validates every tool input against its schema before a handler runs, and keeps DOM and JavaScript-evaluation tools **off** — the assistant gets application tools only | [`src/mcp/provider.tsx`](src/mcp/provider.tsx) |
-| `useMcpTool` | Each view declares its own tools while it is on screen — 34 in all: player (13), results (5), queue (5), collections (8), activity (3). Close a view and its tools are gone; the assistant is told which view to open | [`src/mcp/declared-tools.tsx`](src/mcp/declared-tools.tsx) |
-| `onToolResult` · `onToolError` | Observer callbacks feed the activity record, so every call — including one refused before any handler ran — becomes exactly one entry | [`src/mcp/provider.tsx`](src/mcp/provider.tsx) |
-| `useMcpConnection` | Drives the "Assistant connected / unavailable" status, with the reason when it is unavailable | [`src/App.tsx`](src/App.tsx) |
-| `useMcpTabId` | Routes a tab's ticket and assistant turns to that tab's MCP connection | [`src/main.tsx`](src/main.tsx) |
-| `agent-mcp-react/validation` | The Ajv validator the provider requires | [`src/mcp/provider.tsx`](src/mcp/provider.tsx) |
+### 1. Wrap the app once
 
-The library leaves three things to the application, and this repository supplies them:
+The provider makes the page an MCP server that dials out to your gateway. It never holds a credential — it asks your backend for a single-use URL on every connection attempt.
 
-- **A ticket minter** — [`server/ticket/`](server/ticket): a session cookie and single-use connection URLs.
-- **A gateway** — [`server/gateway/`](server/gateway): the WebSocket upgrade, and an MCP client per page that lists and calls its tools.
-- **An agent runtime** — [`server/agent/`](server/agent) and [`server/assistant/`](server/assistant): a Claude agent loop that sees exactly the tools the page declares right now, streamed to the page as it acts.
-
-Built on top, in the application itself: a local playback matcher, per-domain command ordering, confirmations, undo and the activity record.
-
-## What the demo shows
-
-- **The assistant only acts through declared tools.** "Find talks about finite state machines, only the short ones" becomes `catalog.search`, then `catalog.narrow` — visible on the page as they happen. Narrowing spends no YouTube quota.
-- **Playback never waits for a model.** A typed "pause" is matched on the page and applied; the player confirms the state before the page reports it.
-- **Your hand beats the assistant.** Ask it to go back, then press pause before it acts: the pause applies, and the assistant's older `playback.seek` is refused with the reason instead of being applied over it.
-- **Every tool call is recorded.** By hand or by the assistant, each call lands in the activity record in the page's own words, with Undo where it can be reversed.
-- **Discarding asks first, and "maybe" is not yes.** `curation.removeFromCollection` asks the person; anything but a clear yes refuses it.
-- **The assistant's account comes from the record** — `activity.describeRecent` — not from its memory of the conversation.
-
-## How it fits together
-
-```mermaid
-flowchart LR
-  subgraph Browser["Browser — the React page"]
-    direction TB
-    Provider["AgentMcpProvider<br/>(agent-mcp-react)"]
-    Tools["useMcpTool in each view:<br/>playback · catalog · queue<br/>curation · activity"]
-    Views["Views and their state<br/>player, results, queue,<br/>collections, activity record"]
-    Matcher["Local playback matcher"]
-    Tools --> Views
-    Provider --- Tools
-    Matcher --> Views
-  end
-
-  subgraph Backend["Node backend — supplied by this demo"]
-    direction TB
-    Ticket["Ticket minter"]
-    Gateway["WebSocket gateway<br/>MCP client per tab"]
-    Agent["Agent loop<br/>+ turn stream (SSE)"]
-    Proxy["Catalog proxy<br/>cache + daily quota"]
-  end
-
-  Provider -->|ticket URL| Ticket
-  Provider <-->|MCP over WebSocket| Gateway
-  Views -->|command text| Agent
-  Agent <-->|list and call tools| Gateway
-  Agent <--> Claude["Claude API"]
-  Views -->|search| Proxy
-  Proxy --> YouTube["YouTube Data API"]
-
-  classDef engine fill:#ffd84a,stroke:#16213a,color:#16213a;
-  class Provider,Tools engine;
+```tsx
+// abridged from src/mcp/provider.tsx
+<AgentMcpProvider
+  connection={{ getUrl: getTicketUrl }}          // POST /api/mcp-ticket → single-use ws:// URL
+  server={{ name: 'voice-video-control', version: '0.1.0' }}
+  capabilities={{ application: true, dom: { inspect: false, interact: false }, evaluate: false }}
+  validation={{ validator: createAjvValidator() }}
+  onToolResult={(event) => recordObservedCall(recorder, event)}
+  onToolError={(event) => recordObservedCall(recorder, event)}
+  onUnexpectedState={(failure) => console.error('[mcp] unexpected state', failure)}
+>
+  <App />
+</AgentMcpProvider>
 ```
 
-The highlighted nodes are `agent-mcp-react`. The backend holds what the browser must not: the Anthropic key, the YouTube key and the shared search quota. Voice stays on the device — push-to-talk uses on-device speech recognition only, and the page states what does leave it: command text and video titles go to the model service, searches go to YouTube.
+### 2. Declare tools in the component that owns the state
 
-## Run it
+Each view renders its own tool set, so availability is a consequence of what is on screen rather than a check someone has to remember. This app has 34 tools across five views.
 
-Requirements: **Node 22.18+**, a YouTube Data API v3 key, and an Anthropic API key. Voice needs Chrome with on-device speech recognition; everything else works in any modern browser by typing.
+```tsx
+// src/queue/queue-view.tsx — the queue's tools exist exactly while the queue is shown
+<section data-testid="queue">
+  <DeclaredTools tools={VIEW_TOOLS.queue} />   {/* queue.add, queue.remove, queue.reorder, queue.clear, queue.get */}
+  …
+</section>
+```
+
+```tsx
+// abridged from src/mcp/declared-tools.tsx — one component per tool, so no hook runs in a loop
+useMcpTool({
+  name: tool,
+  description: TOOL_DESCRIPTIONS[tool],
+  inputSchema: wireSchema(tool),
+  handler: async (args, context) => {
+    const result = await actions[tool](command, input, context.signal);   // the same action a button calls
+    await context.afterRender();   // the agent's next read must see what this call changed
+    return result;
+  },
+});
+```
+
+`context.afterRender()` matters for every mutating tool: without it the handler resolves before React commits, and the agent's next read returns the old state.
+
+### 3. Route buttons and tools through the same actions
+
+A button and a tool call are two callers of one function, so they cannot drift apart — and whatever you build into that function (ordering, confirmation, recording, undo) applies to people and to the agent alike.
+
+```tsx
+// abridged from src/App.tsx — the button path
+const command = registry.issue(route);
+const r = await actions[TOOL.queueAdd](command, { videoIds: [id] });
+```
+
+### 4. Put consent inside the handler
+
+The library can ask for confirmation before a tool runs, but that gate covers its own bridge only. A destructive action here asks the person inside the action itself, so the question is the same whoever calls it, and anything but a clear yes refuses.
+
+```ts
+// abridged from src/app/tool-actions.ts — curation.removeFromCollection
+const question = `Remove ${namedVideos(ids)} from "${name}"?`;
+const confirmed = resolveConfirmation(deps.ask(question)) === 'confirmed';   // "maybe" → refused
+```
+
+### 5. Tell the agent what to open, not just that it failed
+
+When the agent calls a tool whose view has closed, the refusal names the view. The model can then tell the person what to do instead of guessing.
+
+```ts
+// abridged from src/mcp/tool-availability.ts
+refuse('view_not_open', `${tool} needs ${view}, which is not open. Open ${view} and try again.`);
+```
+
+### 6. Keep an audit trail of every call
+
+Handlers record what they did — outcome, effect, how to undo it. Calls refused before any handler ran (bad arguments, for example) are recorded from the provider's `onToolResult` / `onToolError` observers, so each call becomes exactly one entry, and the agent can answer "what did you just do?" from that record through a tool of its own. See [`src/activity/`](src/activity).
+
+### 7. Say honestly whether the agent is there
+
+`useMcpConnection` drives an "Assistant connected / unavailable" status with the reason, and the whole app keeps working by hand when it is unavailable. See [`src/mcp/connection-status.tsx`](src/mcp/connection-status.tsx).
+
+### 8. Let a person's newer action win over a stale agent call
+
+Agents are slow compared to a click. Every tool's schema carries a reserved `commandId` that the backend fills in for each assistant turn — the model neither sees nor chooses it. Actions are ordered per domain (playback, queue, …), so if a person pauses while the assistant is still deciding to seek, the older seek is refused with the reason rather than applied over the pause. See [`src/mcp/command-id.ts`](src/mcp/command-id.ts) and [`src/app/`](src/app).
+
+## The other half you supply
+
+`agent-mcp-react` is the browser half. This app supplies the three pieces the library leaves to you, as a small Node backend you can read and borrow from:
+
+| Piece | What it does here | Where |
+|---|---|---|
+| **Ticket minter** | `POST /api/mcp-ticket` issues a single-use, 30-second connection URL bound to the session and tab | [`server/ticket/`](server/ticket) |
+| **WebSocket gateway** | Redeems the ticket during the HTTP upgrade — unknown, expired or replayed tickets get `401` before any handshake — then holds one MCP client (`@modelcontextprotocol/client`) per tab | [`server/gateway/`](server/gateway) |
+| **Agent runtime** | A Claude tool-use loop that lists the page's tools on every step (cached, and invalidated by the page's `tools/list_changed`), calls them through the gateway, and streams each call to the page | [`server/agent/`](server/agent), [`server/assistant/`](server/assistant) |
+
+Your API keys and any shared quotas live here, never in the browser.
+
+## Lessons from adopting it
+
+| What happened | What this app does about it |
+|---|---|
+| Tools declared with `useMcpTool` were never reachable — the provider had not been mounted | `AgentMcpProvider` is mounted at the root, and the gateway logs how many tools a page published when it connects — `34 tools` here |
+| Tool names like `playback.pause` were rejected by the Claude Messages API, which allows only `[a-zA-Z0-9_-]` | The agent runtime aliases names (`playback__pause`) and maps them back, refusing on collision — [`server/agent/tool-names.ts`](server/agent/tool-names.ts) |
+| A panel closed while the agent was mid-turn, and a later step called a tool that no longer existed | The runtime re-lists tools each step and resolves names from everything shown in the turn; the page refuses with the view to open |
+| A handler wrapper cannot see calls refused before the handler runs | Those come from the provider's observers; everything else from the handler — never both for one call |
+| Two tabs of one browser kept replacing each other's connection | The gateway keys connections by session **and** tab (`useMcpTabId`) |
+| The library's confirmation gate is not authorization | Consent lives inside the action (pattern 4) |
+
+The library's own list of pitfalls is worth reading before you start: [Things that will bite you](https://github.com/A-Launch/agent-mcp-react#things-that-will-bite-you).
+
+## Try it locally
+
+Requirements: Node 22.18+, a YouTube Data API v3 key and an Anthropic API key.
 
 ```bash
 npm install
-cp .env.example .env        # then fill in YOUTUBE_API_KEY and ANTHROPIC_API_KEY
-npm run dev:all             # backend on :8787 and the page on http://localhost:5273
+cp .env.example .env        # fill in YOUTUBE_API_KEY and ANTHROPIC_API_KEY
+npm run dev:all             # backend on :8787, app on http://localhost:5273
 ```
 
-Keys stay in the backend and are never sent to the browser bundle. `.env` and `dev.env` are git-ignored. Assistant spend is capped per session and per day (`ASSISTANT_TURNS_PER_SESSION`, `ASSISTANT_TURNS_PER_DAY`).
+Then type into the command box: "find talks about state machines, only the short ones", "play the first one", "queue the second one", "what did you just do?" — and watch each tool call appear under the assistant and in the activity record. Typed playback commands such as "pause" are handled on the page without the assistant; voice works in Chrome with on-device speech recognition.
 
-## Test it
+`npm test` and `npm run test:e2e` run the suites without any keys; the end-to-end suite drives the real page, gateway and turn endpoint with a scripted model.
 
-| Command | What it runs | Needs |
-|---|---|---|
-| `npm test` | Unit, contract and integration tests (Vitest) — every tool's schema and refusals, the activity record and undo, the gateway on a real socket, the turn stream | nothing |
-| `npm run test:e2e` | Playwright against a fake YouTube player and a **scripted** model: every user story, including through the assistant on the real page, gateway and turn endpoint | ports 5273 and 8787 free; spends nothing |
-| `npm run test:e2e:live` | The real embed, the real backend and the real model, plus measured response times | both keys; **spends assistant turns and search quota** |
-| `npm run typecheck` · `npm run lint` | TypeScript for page and server · ESLint | nothing |
+## Where to look
 
-First run: `npx playwright install chromium`.
-
-## Record the demo
-
-With the stack running (`npm run dev:all`):
-
-```bash
-node scripts/demo/tour.mjs   # writes .demo/voice-video-tour-<YYYY-MM-DD-HHMM>.mp4
-```
-
-Every caption reads what the page actually shows, so a take reflects that run — not a script of what should happen. It spends about seven assistant turns and one search.
-
-## Repository map
-
-| Path | What is there |
+| To see how to… | Read |
 |---|---|
-| [`src/mcp/`](src/mcp) | The `agent-mcp-react` integration: provider, tool declarations, capabilities, schemas and descriptions |
-| [`src/`](src) | The page: `player/`, `catalog/`, `queue/`, `curation/`, `activity/` (each with its view and tool actions), `assistant/` (turn client), `matcher/`, `voice/`, `store/` (IndexedDB), `styles.css` |
-| [`server/`](server) | What the library leaves to the app: `ticket/`, `gateway/`, `agent/` (loop, scripted model for tests), `assistant/` (turn endpoint, allowance), plus `catalog-proxy/` |
-| [`tests/`](tests) | `contract/`, `integration/`, `e2e/` (fake player, scripted model), `e2e-live/` |
-| [`specs/001-voice-video-control/`](specs/001-voice-video-control) | The specification, plan, research decisions, data model, contracts and [quickstart scenarios](specs/001-voice-video-control/quickstart.md) |
-| [`scripts/demo/`](scripts/demo) | The recorded tour |
-| [`docs/media/`](docs/media) | The demo video, its preview and the social preview image |
-
-## Known limits
-
-- **Search quota is shared:** YouTube allows 100 searches a day for the whole deployment. Narrowing loaded results spends none, and the page shows what remains.
-- **The assistant can misjudge.** In one recorded take it replied that the queue was not on screen although all 34 tools were declared, and queued nothing; the page showed exactly that. The same request worked in every other take. Refusals and replies are always shown as they happened.
-- **Voice depends on the browser.** Without on-device recognition, voice is refused with the reason.
+| Configure the provider | [`src/mcp/provider.tsx`](src/mcp/provider.tsx), [`src/mcp/capabilities.ts`](src/mcp/capabilities.ts) |
+| Declare tools per view | [`src/mcp/declared-tools.tsx`](src/mcp/declared-tools.tsx), [`src/mcp/tool-descriptions.ts`](src/mcp/tool-descriptions.ts), [`src/mcp/tool-schemas.ts`](src/mcp/tool-schemas.ts) |
+| Share actions between buttons and tools | [`src/app/tool-actions.ts`](src/app/tool-actions.ts) |
+| Record calls and undo them | [`src/activity/`](src/activity) |
+| Mint tickets, run the gateway, run the agent | [`server/ticket/`](server/ticket), [`server/gateway/`](server/gateway), [`server/agent/`](server/agent) |
+| Read the full design rationale | [`specs/001-voice-video-control/`](specs/001-voice-video-control) |
 
 ## License
 
-[Apache License 2.0](LICENSE). [`agent-mcp-react`](https://github.com/A-Launch/agent-mcp-react) is also Apache-2.0.
+[Apache License 2.0](LICENSE), like [`agent-mcp-react`](https://github.com/A-Launch/agent-mcp-react) itself.
