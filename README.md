@@ -119,19 +119,6 @@ Agents are slow compared to a click. Every tool's schema carries a reserved `com
 
 Your API keys and any shared quotas live here, never in the browser.
 
-## Lessons from adopting it
-
-| What happened | What this app does about it |
-|---|---|
-| Tools declared with `useMcpTool` were never reachable — the provider had not been mounted | `AgentMcpProvider` is mounted at the root, and the gateway logs how many tools a page published when it connects — `34 tools` here |
-| Tool names like `playback.pause` were rejected by the Claude Messages API, which allows only `[a-zA-Z0-9_-]` | The agent runtime aliases names (`playback__pause`) and maps them back, refusing on collision — [`server/agent/tool-names.ts`](server/agent/tool-names.ts) |
-| A panel closed while the agent was mid-turn, and a later step called a tool that no longer existed | The runtime re-lists tools each step and resolves names from everything shown in the turn; the page refuses with the view to open |
-| A handler wrapper cannot see calls refused before the handler runs | Those come from the provider's observers; everything else from the handler — never both for one call |
-| Two tabs of one browser kept replacing each other's connection | The gateway keys connections by session **and** tab (`useMcpTabId`) |
-| The library's confirmation gate is not authorization | Consent lives inside the action (pattern 4) |
-
-The library's own list of pitfalls is worth reading before you start: [Things that will bite you](https://github.com/A-Launch/agent-mcp-react#things-that-will-bite-you).
-
 ## Try it locally
 
 Requirements: Node 22.18+, a YouTube Data API v3 key and an Anthropic API key.
@@ -155,6 +142,7 @@ Then type into the command box: "find talks about state machines, only the short
 | Share actions between buttons and tools | [`src/app/tool-actions.ts`](src/app/tool-actions.ts) |
 | Record calls and undo them | [`src/activity/`](src/activity) |
 | Mint tickets, run the gateway, run the agent | [`server/ticket/`](server/ticket), [`server/gateway/`](server/gateway), [`server/agent/`](server/agent) |
+| Avoid the problems this app hit | [Lessons learned](docs/lessons-learned.md) |
 | Read the full design rationale | [`specs/001-voice-video-control/`](specs/001-voice-video-control) |
 
 ## License
