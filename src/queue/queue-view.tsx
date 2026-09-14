@@ -18,18 +18,18 @@ export function QueueView({
   readonly onRemoveEntry: (entryId: string) => void;
 }) {
   return (
-    <section data-testid="queue" style={{ margin: '0.5rem 0' }}>
+    <section data-testid="queue" className="panel">
       {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
       <DeclaredTools tools={VIEW_TOOLS.queue} />
-      <h2 style={{ fontSize: '1rem' }}>Queue ({queue.items.length})</h2>
+      <h2>Queue ({queue.items.length})</h2>
       {queue.items.length === 0 ? (
         <p data-testid="queue-empty">Nothing queued.</p>
       ) : (
-        <ol data-testid="queue-list">
+        <ol data-testid="queue-list" className="rows">
           {queue.items.map((entry) => (
             <li key={entry.entryId} data-testid="queue-item">
               {/* A bare id named nothing a person could recognise (demo recording, take 1). */}
-              {titleOf(entry.videoId) ?? entry.videoId}{' '}
+              <span className="row-title">{titleOf(entry.videoId) ?? entry.videoId}</span>{' '}
               <button type="button" onClick={() => onRemoveEntry(entry.entryId)}>
                 Remove
               </button>

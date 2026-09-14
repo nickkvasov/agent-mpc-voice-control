@@ -3,6 +3,7 @@ import { useMcpTabId } from 'agent-mcp-react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { McpRoot } from './mcp/provider.tsx';
+import './styles.css';
 
 const root = document.getElementById('root');
 // IMMUNE-U: a missing mount point is an unexpected state, not something to

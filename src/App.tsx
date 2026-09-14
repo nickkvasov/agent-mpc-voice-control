@@ -492,193 +492,212 @@ export function App() {
 
   return (
     <ToolSurfaceProvider surface={surface}>
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: '1rem' }}>
-      <h1>Voice Video Control</h1>
-      <ConnectionStatus state={connection} reason={connection === 'unavailable' ? connectionReason : null} />
-      <PushToTalk
-        onUtterance={(pending) => onText(() => pending, 'voice', COMMAND_ROUTE.voice)}
-        onAvailabilityChange={setVoiceAvailable}
-      />
-      <CommandInput onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.text)} />
-      <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
-      <TurnView turns={turns} onCancel={(commandId) => cancelTurn.current.get(commandId)?.()} />
-      <section data-testid="discovery" style={{ margin: '0.5rem 0' }}>
-        <form
-          data-testid="search-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const q = new FormData(e.currentTarget).get('q');
-            if (typeof q === 'string' && q.trim() !== '') {
-              void perform(TOOL.catalogSearch, { query: q }, (v) => `Found ${String((v as { results: unknown[] }).results.length)}.`);
-            }
+    <div className="app">
+      <header className="masthead">
+        <h1>Voice Video Control</h1>
+        <ConnectionStatus state={connection} reason={connection === 'unavailable' ? connectionReason : null} />
+      </header>
+      <main className="deck">
+        <div className="stage">
+          <PlayerView
+            // Derived from the player, which owns it and resets it on every request —
+            // a copy in React state outlived the video it described (Gate C).
+            status={(() => {
+              const error = p?.lastError() ?? null;
+              return error === null ? null : describePlayerError(error.code).message;
+            })()}
+            nowPlaying={(() => {
+              const id = p?.loadedVideoId() ?? null;
+              return id === null ? null : (results.items.find((v) => v.videoId === id)?.title ?? id);
+            })()}
+            onReady={(player) => {
+              playerRef.current = player;
+              bump();
+            }}
+            onChange={bump}
+            onError={bump}
+          />
+          {/* Controls read state through the shared mapper, so they cannot disagree
+              with what the tools reported. Before the player exists they show nothing
+              playing, which is true. */}
+          <Controls
+            state={(p === null ? undefined : playerStateFromCode(p.getPlayerState())) ?? PLAYER_STATE.unstarted}
+            positionSeconds={p?.getCurrentTime() ?? 0}
+            durationSeconds={p?.getDuration() ?? 0}
+            rate={p?.getPlaybackRate() ?? 1}
+            volume={p?.getVolume() ?? 0}
+            muted={p?.isMuted() ?? false}
+            captionsTrack={track === '' ? null : track}
+            onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.manual)}
+          />
+        </div>
+        <div className="console">
+          <PushToTalk
+            onUtterance={(pending) => onText(() => pending, 'voice', COMMAND_ROUTE.voice)}
+            onAvailabilityChange={setVoiceAvailable}
+          />
+          <CommandInput onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.text)} />
+          <Interpretation heard={heard} interpretation={interpretation} outcome={outcome} />
+          <TurnView turns={turns} onCancel={(commandId) => cancelTurn.current.get(commandId)?.()} />
+        </div>
+      </main>
+      <div className="library">
+        <div className="library-bar">
+          <section data-testid="discovery" className="search-form">
+            <form
+              data-testid="search-form"
+              className="inline-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const q = new FormData(e.currentTarget).get('q');
+                if (typeof q === 'string' && q.trim() !== '') {
+                  void perform(TOOL.catalogSearch, { query: q }, (v) => `Found ${String((v as { results: unknown[] }).results.length)}.`);
+                }
+              }}
+            >
+              <label className="field">
+                <span>Search the catalog</span> <input name="q" data-testid="search-input" placeholder="state machines" />
+              </label>{' '}
+              <button type="submit" className="btn-primary" data-testid="search-submit">Search</button>{' '}
+              <button
+                type="button"
+                data-testid="narrow-short"
+                onClick={() => void perform(TOOL.catalogNarrow, { maxDurationSeconds: 600 }, () => 'Narrowed to under 10 minutes.')}
+              >
+                Only the short ones
+              </button>
+            </form>
+          </section>
+          <p className="view-toggles">
+            <button type="button" data-testid="toggle-results" aria-pressed={showResults} onClick={() => setShowResults((v) => !v)}>
+              {showResults ? 'Hide results' : 'Show results'}
+            </button>{' '}
+            <button type="button" data-testid="toggle-collections" aria-pressed={showCollections} onClick={() => setShowCollections((v) => !v)}>
+              {showCollections ? 'Hide collections' : 'Show collections'}
+            </button>{' '}
+            <button type="button" data-testid="toggle-queue" aria-pressed={showQueue} onClick={() => setShowQueue((v) => !v)}>
+              {showQueue ? 'Hide queue' : 'Show queue'}
+            </button>
+          </p>
+        </div>
+        <div className="panels">
+          {showResults && <ResultsView
+            results={results}
+            quota={quota}
+            onPlay={(id) => {
+              const title = results.items.find((v) => v.videoId === id)?.title ?? id;
+              void perform(TOOL.playbackPlayVideo, { videoId: id }, () => `Playing "${title}".`);
+            }}
+            onAddToCollection={(id) => {
+              // Captured at CLICK time. Reading it at execution time sent a video
+              // to whichever collection happened to be selected when the queue
+              // drained, not the one chosen when the button was pressed (Gate C).
+              const wanted = destinationRef.current ?? collectionsRef.current.items[0]?.collectionId ?? null;
+              if (wanted === null) {
+                setOutcome('Create a collection first.');
+                return;
+              }
+              const name = collectionsRef.current.items.find((c) => c.collectionId === wanted)?.name ?? wanted;
+              void perform(TOOL.curationAddToCollection, { collectionId: wanted, videoIds: [id] }, () => `Added to "${name}".`);
+            }}
+            onQueue={(id) => void perform(TOOL.queueAdd, { videoIds: [id] }, () => `Queued ${id}.`)}
+          />}
+          {showCollections && (
+            <CurationView
+              collections={collections.items}
+              videos={annotated}
+              storageDurable={storageDurable}
+              destination={destination ?? collections.items[0]?.collectionId ?? null}
+              onChooseDestination={setDestination}
+              onRemoveVideo={(collectionId, videoId) =>
+                void perform(TOOL.curationRemoveFromCollection, { collectionId, videoIds: [videoId] }, () => 'Removed.')
+              }
+              onLabel={(videoId) => {
+                const video = annotated.find((v) => v.videoId === videoId);
+                if (video === undefined) return;
+                const answer = globalThis.prompt?.(`A label for "${video.title}"? Leave blank to clear it.`);
+                if (answer === null || answer === undefined) return;
+                void perform(
+                  TOOL.curationSetLabel,
+                  { videoId, label: answer.trim() === '' ? null : answer },
+                  (v) => `Labelled — the video is still "${(v as { sourceTitle: string }).sourceTitle}" on YouTube.`,
+                );
+              }}
+              onTag={(videoId) => {
+                const video = annotated.find((v) => v.videoId === videoId);
+                if (video === undefined) return;
+                const answer = globalThis.prompt?.(`A tag for "${video.title}"?`);
+                if (answer === null || answer === undefined || answer.trim() === '') return;
+                void perform(TOOL.curationAddTags, { videoIds: [videoId], tags: [answer] }, () => `Tagged "${answer.trim().toLowerCase()}".`);
+              }}
+              onCreate={(name) => void perform(TOOL.curationCreateCollection, { name }, () => `Created "${name}".`)}
+              onDelete={(collectionId) => {
+                const name = collectionsRef.current.items.find((c) => c.collectionId === collectionId)?.name ?? collectionId;
+                void perform(TOOL.curationDeleteCollection, { collectionId }, () => `Deleted "${name}".`);
+              }}
+            />
+          )}
+          {showQueue && (
+            <QueueView
+              queue={queue}
+              titleOf={(videoId) => {
+                const v = annotated.find((x) => x.videoId === videoId);
+                return v === undefined ? null : (v.label ?? v.title);
+              }}
+              onRemoveEntry={(entryId) => {
+                // Removes that ONE occurrence; the queue may hold a video twice.
+                const videoId = queueRef.current.items.find((e) => e.entryId === entryId)?.videoId ?? 'unknown';
+                void perform(TOOL.queueRemove, { entryIds: [entryId] }, () => `Removed ${videoId} from the queue.`);
+              }}
+            />
+          )}
+        </div>
+      </div>
+      <div className="ledger">
+        <RecordView
+          entries={activity}
+          eligibilityContext={{
+            blockedBy: (entry) => {
+              // The same conflict the restoration path refuses on, asked BEFORE
+              // the button is drawn — otherwise the person decides it will work
+              // and is told afterwards that it will not (FR-044).
+              const effect = entry.effect;
+              if (effect === null || effect.kind !== 'collection_existence' || effect.created) return null;
+              const gone = deletedCollections.current.get(effect.collectionId);
+              if (gone === undefined) return null;
+              const clash = collections.items.find(
+                (c) => c.collectionId !== gone.collectionId && c.name.trim().toLowerCase() === gone.name.trim().toLowerCase(),
+              );
+              return clash === undefined
+                ? null
+                : `Cannot be restored: a collection called "${clash.name}" now uses that name.`;
+            },
           }}
-        >
-          <label>
-            Search the catalog <input name="q" data-testid="search-input" placeholder="state machines" />
-          </label>{' '}
-          <button type="submit" data-testid="search-submit">Search</button>{' '}
-          <button
-            type="button"
-            data-testid="narrow-short"
-            onClick={() => void perform(TOOL.catalogNarrow, { maxDurationSeconds: 600 }, () => 'Narrowed to under 10 minutes.')}
-          >
-            Only the short ones
-          </button>
-        </form>
-      </section>
-      {showResults && <ResultsView
-        results={results}
-        quota={quota}
-        onPlay={(id) => {
-          const title = results.items.find((v) => v.videoId === id)?.title ?? id;
-          void perform(TOOL.playbackPlayVideo, { videoId: id }, () => `Playing "${title}".`);
-        }}
-        onAddToCollection={(id) => {
-          // Captured at CLICK time. Reading it at execution time sent a video
-          // to whichever collection happened to be selected when the queue
-          // drained, not the one chosen when the button was pressed (Gate C).
-          const wanted = destinationRef.current ?? collectionsRef.current.items[0]?.collectionId ?? null;
-          if (wanted === null) {
-            setOutcome('Create a collection first.');
-            return;
+          onUndo={(entryId) =>
+            void perform(TOOL.activityUndo, { entryId }, (v) => (v as { description: string }).description)
           }
-          const name = collectionsRef.current.items.find((c) => c.collectionId === wanted)?.name ?? wanted;
-          void perform(TOOL.curationAddToCollection, { collectionId: wanted, videoIds: [id] }, () => `Added to "${name}".`);
-        }}
-        onQueue={(id) => void perform(TOOL.queueAdd, { videoIds: [id] }, () => `Queued ${id}.`)}
-      />}
-      <p style={{ margin: '0.25rem 0' }}>
-        <button type="button" data-testid="toggle-results" onClick={() => setShowResults((v) => !v)}>
-          {showResults ? 'Hide results' : 'Show results'}
-        </button>{' '}
-        <button type="button" data-testid="toggle-collections" onClick={() => setShowCollections((v) => !v)}>
-          {showCollections ? 'Hide collections' : 'Show collections'}
-        </button>{' '}
-        <button type="button" data-testid="toggle-queue" onClick={() => setShowQueue((v) => !v)}>
-          {showQueue ? 'Hide queue' : 'Show queue'}
-        </button>
-      </p>
-      {showCollections && (
-        <CurationView
-          collections={collections.items}
-          videos={annotated}
-          storageDurable={storageDurable}
-          destination={destination ?? collections.items[0]?.collectionId ?? null}
-          onChooseDestination={setDestination}
-          onRemoveVideo={(collectionId, videoId) =>
-            void perform(TOOL.curationRemoveFromCollection, { collectionId, videoIds: [videoId] }, () => 'Removed.')
-          }
-          onLabel={(videoId) => {
-            const video = annotated.find((v) => v.videoId === videoId);
-            if (video === undefined) return;
-            const answer = globalThis.prompt?.(`A label for "${video.title}"? Leave blank to clear it.`);
-            if (answer === null || answer === undefined) return;
-            void perform(
-              TOOL.curationSetLabel,
-              { videoId, label: answer.trim() === '' ? null : answer },
-              (v) => `Labelled — the video is still "${(v as { sourceTitle: string }).sourceTitle}" on YouTube.`,
-            );
-          }}
-          onTag={(videoId) => {
-            const video = annotated.find((v) => v.videoId === videoId);
-            if (video === undefined) return;
-            const answer = globalThis.prompt?.(`A tag for "${video.title}"?`);
-            if (answer === null || answer === undefined || answer.trim() === '') return;
-            void perform(TOOL.curationAddTags, { videoIds: [videoId], tags: [answer] }, () => `Tagged "${answer.trim().toLowerCase()}".`);
-          }}
-          onCreate={(name) => void perform(TOOL.curationCreateCollection, { name }, () => `Created "${name}".`)}
-          onDelete={(collectionId) => {
-            const name = collectionsRef.current.items.find((c) => c.collectionId === collectionId)?.name ?? collectionId;
-            void perform(TOOL.curationDeleteCollection, { collectionId }, () => `Deleted "${name}".`);
-          }}
         />
-      )}
-      <HistoryControls
-        commandCount={commandCount}
-        onClear={() => {
-          void stores.current?.stores.commands.clear();
-          setCommandCount(0);
-          // The transcript on screen IS retained text. Reporting it deleted
-          // while it is still being displayed would be the disclosure
-          // contradicting itself (Gate C, FR-041).
-          setHeard(null);
-          setInterpretation(null);
-          setOutcome('Command history cleared from this device.');
-        }}
-      />
-      <RecordView
-        entries={activity}
-        eligibilityContext={{
-          blockedBy: (entry) => {
-            // The same conflict the restoration path refuses on, asked BEFORE
-            // the button is drawn — otherwise the person decides it will work
-            // and is told afterwards that it will not (FR-044).
-            const effect = entry.effect;
-            if (effect === null || effect.kind !== 'collection_existence' || effect.created) return null;
-            const gone = deletedCollections.current.get(effect.collectionId);
-            if (gone === undefined) return null;
-            const clash = collections.items.find(
-              (c) => c.collectionId !== gone.collectionId && c.name.trim().toLowerCase() === gone.name.trim().toLowerCase(),
-            );
-            return clash === undefined
-              ? null
-              : `Cannot be restored: a collection called "${clash.name}" now uses that name.`;
-          },
-        }}
-        onUndo={(entryId) =>
-          void perform(TOOL.activityUndo, { entryId }, (v) => (v as { description: string }).description)
-        }
-      />
-      <p data-testid="what-did-you-do" style={{ fontSize: '0.85rem', color: '#555', whiteSpace: 'pre-line' }}>
-        {describeRecent(activity, 3)}
-      </p>
-      {showQueue && (
-        <QueueView
-          queue={queue}
-          titleOf={(videoId) => {
-            const v = annotated.find((x) => x.videoId === videoId);
-            return v === undefined ? null : (v.label ?? v.title);
-          }}
-          onRemoveEntry={(entryId) => {
-            // Removes that ONE occurrence; the queue may hold a video twice.
-            const videoId = queueRef.current.items.find((e) => e.entryId === entryId)?.videoId ?? 'unknown';
-            void perform(TOOL.queueRemove, { entryIds: [entryId] }, () => `Removed ${videoId} from the queue.`);
-          }}
-        />
-      )}
-      <PlayerView
-        // Derived from the player, which owns it and resets it on every request —
-        // a copy in React state outlived the video it described (Gate C).
-        status={(() => {
-          const error = p?.lastError() ?? null;
-          return error === null ? null : describePlayerError(error.code).message;
-        })()}
-        nowPlaying={(() => {
-          const id = p?.loadedVideoId() ?? null;
-          return id === null ? null : (results.items.find((v) => v.videoId === id)?.title ?? id);
-        })()}
-        onReady={(player) => {
-          playerRef.current = player;
-          bump();
-        }}
-        onChange={bump}
-        onError={bump}
-      />
-      {/* Controls read state through the shared mapper, so they cannot disagree
-          with what the tools reported. Before the player exists they show nothing
-          playing, which is true. */}
-      <Controls
-        state={(p === null ? undefined : playerStateFromCode(p.getPlayerState())) ?? PLAYER_STATE.unstarted}
-        positionSeconds={p?.getCurrentTime() ?? 0}
-        durationSeconds={p?.getDuration() ?? 0}
-        rate={p?.getPlaybackRate() ?? 1}
-        volume={p?.getVolume() ?? 0}
-        muted={p?.isMuted() ?? false}
-        captionsTrack={track === '' ? null : track}
-        onCommand={(t) => onText(() => Promise.resolve(t), 'text', COMMAND_ROUTE.manual)}
-      />
-      <PrivacyDisclosure voiceAvailable={voiceAvailable} assistantConnected={connection === 'connected'} />
-    </main>
+        <aside className="aside">
+          <p data-testid="what-did-you-do" className="recap">
+            {describeRecent(activity, 3)}
+          </p>
+          <HistoryControls
+            commandCount={commandCount}
+            onClear={() => {
+              void stores.current?.stores.commands.clear();
+              setCommandCount(0);
+              // The transcript on screen IS retained text. Reporting it deleted
+              // while it is still being displayed would be the disclosure
+              // contradicting itself (Gate C, FR-041).
+              setHeard(null);
+              setInterpretation(null);
+              setOutcome('Command history cleared from this device.');
+            }}
+          />
+          <PrivacyDisclosure voiceAvailable={voiceAvailable} assistantConnected={connection === 'connected'} />
+        </aside>
+      </div>
+    </div>
     </ToolSurfaceProvider>
   );
 }

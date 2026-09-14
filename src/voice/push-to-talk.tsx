@@ -119,9 +119,11 @@ export function PushToTalk({ onUtterance, onAvailabilityChange }: PushToTalkProp
   }, [onUtterance]);
 
   return (
-    <section data-testid="push-to-talk" style={{ margin: '0.5rem 0' }}>
+    <section data-testid="push-to-talk" className="talk">
+      <div className="talk-row">
       <button
         type="button"
+        className="talk-button"
         data-testid="talk-button"
         onPointerDown={() => void begin()}
         onPointerUp={end}
@@ -130,7 +132,7 @@ export function PushToTalk({ onUtterance, onAvailabilityChange }: PushToTalkProp
         Hold to talk
       </button>
       {capturing && (
-        <span data-testid="capture-indicator" role="status" style={{ marginLeft: '0.5rem', color: '#b00' }}>
+        <span data-testid="capture-indicator" role="status" className="listening">
           ● Listening
         </span>
       )}
@@ -138,7 +140,6 @@ export function PushToTalk({ onUtterance, onAvailabilityChange }: PushToTalkProp
         <button
           type="button"
           data-testid="install-voice"
-          style={{ marginLeft: '0.5rem' }}
           onClick={() => {
             setPhase('installing');
             setDetail('Downloading the on-device language…');
@@ -152,7 +153,8 @@ export function PushToTalk({ onUtterance, onAvailabilityChange }: PushToTalkProp
           Download voice support
         </button>
       )}
-      <p data-testid="voice-detail" style={{ fontSize: '0.85rem', color: '#555' }}>{detail}</p>
+      </div>
+      <p data-testid="voice-detail" className="quiet">{detail}</p>
     </section>
   );
 }

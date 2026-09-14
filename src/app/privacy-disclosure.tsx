@@ -13,9 +13,9 @@ export interface PrivacyDisclosureProps {
 
 export function PrivacyDisclosure({ voiceAvailable, assistantConnected }: PrivacyDisclosureProps) {
   return (
-    <section data-testid="privacy" style={{ fontSize: '0.85rem', color: '#555', borderTop: '1px solid #ddd', marginTop: '1rem', paddingTop: '0.5rem' }}>
-      <h2 style={{ fontSize: '0.9rem', margin: '0 0 0.25rem' }}>What leaves this device</h2>
-      <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+    <section data-testid="privacy" className="privacy">
+      <h2>What leaves this device</h2>
+      <ul>
         <li data-testid="privacy-audio">
           {voiceAvailable
             ? 'Your voice is recognised on this device. The audio itself is never sent anywhere.'

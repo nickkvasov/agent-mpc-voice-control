@@ -1,0 +1,365 @@
+/*
+ * Voice Video Control — design system.
+ *
+ * The page's job is to be told something and to show, plainly, what it did.
+ * So the one bold element is the caption: what was heard and what happened is
+ * set like a closed caption under the console, in caption yellow on ink. Every
+ * other surface stays quiet — fog ground, paper panels, ink text.
+ *
+ * Typefaces are bundled with the app (no font request leaves the device, which
+ * the privacy disclosure promises): Bricolage Grotesque for headings and the
+ * spoken line, Atkinson Hyperlegible Next for everything read at size.
+ */
+@import '@fontsource-variable/bricolage-grotesque/opsz.css';
+@import '@fontsource-variable/atkinson-hyperlegible-next/wght.css';
+
+:root {
+  --fog: #e6eaee;
+  --paper: #f8fafb;
+  --ink: #16213a;
+  --slate: #56617a;
+  --rule: #cbd3dc;
+  --caption: #ffd84a;
+  --live: #e0433f;
+  --refused: #b3261e;
+  --refused-wash: #fbeceb;
+  --done: #1d7148;
+  --bezel: #16213a;
+
+  --display: 'Bricolage Grotesque Variable', 'Avenir Next', system-ui, sans-serif;
+  --text: 'Atkinson Hyperlegible Next Variable', 'Segoe UI', system-ui, sans-serif;
+
+  /* A 1.25 scale from a 16px body. */
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.5625rem;
+  --step-3: 1.953rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.25rem;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fog: #0f1627;
+    --paper: #18223a;
+    --ink: #e8ecf4;
+    --slate: #9ba6bd;
+    --rule: #2c3a57;
+    --refused: #ff8a80;
+    --refused-wash: #3a1e24;
+    --done: #6fd39f;
+    --bezel: #2c3a57;
+    color-scheme: dark;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fog);
+  color: var(--ink);
+  font: 400 var(--step-0) / 1.5 var(--text);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2 { font-family: var(--display); font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+h2 { font-size: var(--step-1); line-height: 1.2; }
+p { margin: 0; }
+ol, ul { margin: 0; padding: 0; list-style: none; }
+
+/* ---------- Controls ---------- */
+
+button, input, select { font: inherit; color: inherit; }
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--step--1);
+  font-weight: 600;
+  line-height: 1.4;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+button:hover:not(:disabled) { border-color: var(--slate); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.btn-primary {
+  background: var(--caption);
+  border-color: var(--caption);
+  color: #16213a;
+  border-radius: 999px;
+  padding: 0.45rem 1.1rem;
+  font-size: var(--step-0);
+}
+.btn-primary:hover:not(:disabled) { border-color: #16213a; }
+
+input, select {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 0.45rem 0.75rem;
+  min-width: 0;
+}
+input::placeholder { color: var(--slate); opacity: 0.8; }
+
+:focus-visible {
+  outline: 3px solid var(--caption);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--ink);
+}
+input:focus-visible { outline-offset: 0; }
+
+.field { display: grid; gap: var(--space-1); flex: 1; min-width: 0; }
+.field > span { font-size: var(--step--1); color: var(--slate); font-weight: 600; }
+.inline-form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); }
+.quiet { font-size: var(--step--1); color: var(--slate); }
+.warn { color: var(--refused); }
+
+/* ---------- Page frame ---------- */
+
+.app {
+  max-width: 88rem;
+  margin: 0 auto;
+  padding: var(--space-5) clamp(1rem, 3vw, 2.5rem) var(--space-6);
+  display: grid;
+  gap: var(--space-6);
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+}
+.masthead h1 { font-size: var(--step-3); line-height: 1; font-variation-settings: 'opsz' 96; }
+
+.connection { display: inline-flex; align-items: baseline; gap: var(--space-2); font-size: var(--step--1); color: var(--slate); max-width: 44rem; }
+.connection::before {
+  content: '';
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--slate);
+  transform: translateY(0.05rem);
+}
+.connection[data-state='connected']::before { background: var(--done); }
+.connection[data-state='connecting']::before { background: var(--caption); }
+.connection[data-state='unavailable'] { color: var(--refused); }
+.connection[data-state='unavailable']::before { background: var(--refused); }
+
+/* Screen on the left, console on the right; one column when narrow. */
+.deck {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (max-width: 960px) { .deck { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- Screen ---------- */
+
+.stage { display: grid; gap: var(--space-4); }
+
+.player { display: grid; gap: var(--space-2); }
+.player-screen {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #0b1122;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 6px solid var(--bezel);
+}
+.player-screen iframe, .player-screen > div { width: 100%; height: 100%; display: block; }
+.now-playing { font-family: var(--display); font-size: var(--step-1); font-weight: 600; line-height: 1.25; }
+.player-status { color: var(--refused); }
+
+.controls { display: grid; gap: var(--space-3); }
+.transport { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.transport button { min-width: 4.5rem; padding: 0.5rem 0.9rem; font-size: var(--step-0); }
+
+.readout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--rule);
+}
+.readout > div { padding: var(--space-2) var(--space-3) 0 0; }
+.readout dt { font-size: var(--step--1); color: var(--slate); }
+.readout dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+
+/* ---------- Console ---------- */
+
+.console {
+  display: grid;
+  gap: var(--space-4);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  padding: var(--space-5);
+}
+
+.talk { display: grid; gap: var(--space-2); }
+.talk-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.talk-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+  border-radius: 999px;
+  padding: 0.7rem 1.4rem;
+  font-size: var(--step-1);
+  font-family: var(--display);
+  touch-action: none;
+  user-select: none;
+}
+.talk-button::before {
+  content: '';
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--live);
+}
+.listening { color: var(--live); font-weight: 700; }
+@media (prefers-reduced-motion: no-preference) {
+  .listening { animation: breathe 1.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 0.45; } }
+}
+
+.command-form { display: flex; gap: var(--space-2); align-items: end; }
+.command-form input { font-size: var(--step-1); padding: 0.55rem 0.85rem; }
+.command-form .btn-primary, .search-form .btn-primary { padding-block: 0.6rem; }
+
+/* The caption: what the page heard, and what it did about it. */
+.caption {
+  background: var(--ink);
+  color: #f4f6fb;
+  border-radius: 14px;
+  padding: var(--space-4) var(--space-5);
+  display: grid;
+  gap: var(--space-2);
+}
+@media (prefers-color-scheme: dark) { .caption { background: #070b16; } }
+.caption-heard { font-family: var(--display); font-size: var(--step-2); line-height: 1.2; font-weight: 600; }
+.caption-heard q { color: var(--caption); }
+.caption-understood { color: #b9c2d6; font-size: var(--step--1); }
+.caption-outcome { font-size: var(--step-0); }
+
+.turns { display: grid; gap: var(--space-3); }
+.turns > ol { display: grid; gap: var(--space-3); }
+.turn {
+  border-left: 3px solid var(--rule);
+  padding-left: var(--space-3);
+  display: grid;
+  gap: var(--space-1);
+}
+.turn[data-state='acknowledged'], .turn[data-state='running'], .turn[data-state='late'] { border-left-color: var(--caption); }
+.turn[data-state='done'] { border-left-color: var(--done); }
+.turn[data-state='refused'] { border-left-color: var(--refused); }
+.turn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
+.turn-text { font-weight: 700; }
+.turn-state { color: var(--slate); font-size: var(--step--1); }
+.turn-calls { display: grid; gap: 2px; font-size: var(--step--1); color: var(--slate); }
+.turn-calls li { overflow-wrap: anywhere; }
+.turn-call[data-ok='false'] { color: var(--refused); }
+.turn-refusal { color: var(--refused); }
+
+/* ---------- Library ---------- */
+
+.library { display: grid; gap: var(--space-4); }
+.library-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+}
+.search-form { flex: 1 1 32rem; }
+.view-toggles { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* Shown views read as switched on: ink outline; hidden ones recede. */
+.view-toggles button { background: transparent; color: var(--slate); }
+.view-toggles button[aria-pressed='true'] { background: var(--paper); border-color: var(--ink); color: var(--ink); }
+
+/* Results take the wide column; collections and the queue stack beside them. */
+.panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 960px) { .panels { grid-template-columns: minmax(0, 1fr); } }
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.panel-results { grid-row: span 2; }
+@media (max-width: 960px) { .panel-results { grid-row: auto; } }
+
+.rows > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--rule);
+}
+.rows > li:first-child { border-top: 0; }
+.row-title { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.row-meta { color: var(--slate); }
+/* Result titles are bare text (see results-view), so the length pushes the rest right. */
+.panel-results .rows > li > .row-meta:first-of-type { margin-left: auto; }
+
+.row-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+
+.collection > .row-title { font-weight: 700; flex: 0 1 auto; }
+.collection > .row-meta { margin-right: auto; }
+.collection-videos { flex-basis: 100%; padding-left: var(--space-4); }
+.collection-videos > li { border-top-style: dashed; }
+
+/* ---------- Ledger ---------- */
+
+.ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (max-width: 960px) { .ledger { grid-template-columns: minmax(0, 1fr); } }
+
+.activity-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--space-3); align-items: baseline; }
+.activity-detail { grid-column: 1; color: var(--refused); font-size: var(--step--1); }
+/* An Undo button sits beside its entry; a reason why not reads beneath it. */
+.activity-undo { grid-column: 1 / -1; font-size: var(--step--1); color: var(--slate); }
+.activity-undo:has(button) { grid-column: 2; grid-row: 1; }
+
+.aside { display: grid; gap: var(--space-4); padding-top: var(--space-4); }
+
+.recap { white-space: pre-line; font-size: var(--step--1); color: var(--slate); }
+.history { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--step--1); color: var(--slate); }
+.privacy { font-size: var(--step--1); color: var(--slate); display: grid; gap: var(--space-2); }
+.privacy h2 { font-size: var(--step-0); color: var(--ink); }
+.privacy ul { display: grid; gap: var(--space-1); list-style: disc; padding-left: 1.1rem; }
+
+/* A search box narrower than its words is no search box: buttons wrap below it instead. */
+.search-form .field { flex: 1 1 14rem; }

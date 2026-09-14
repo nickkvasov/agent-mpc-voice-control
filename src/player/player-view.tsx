@@ -59,11 +59,11 @@ export function PlayerView({ onReady, onChange, onError, status, nowPlaying }: P
 
   const shown = loadFailure ?? status;
   return (
-    <section data-testid="player" data-ready={ready ? 'true' : 'false'} style={{ margin: '0.5rem 0' }}>
-      <div ref={host} style={{ width: '100%', maxWidth: '40rem', aspectRatio: '16 / 9', background: '#111' }} />
-      {nowPlaying !== null && <p data-testid="now-playing">Now playing: {nowPlaying}</p>}
+    <section data-testid="player" data-ready={ready ? 'true' : 'false'} className="player">
+      <div ref={host} className="player-screen" />
+      {nowPlaying !== null && <p data-testid="now-playing" className="now-playing">Now playing: {nowPlaying}</p>}
       {shown !== null && (
-        <p data-testid="player-status" role="status" style={{ color: '#a00' }}>
+        <p data-testid="player-status" role="status" className="player-status">
           {shown}
         </p>
       )}

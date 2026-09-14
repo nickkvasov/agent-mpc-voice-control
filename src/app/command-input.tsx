@@ -20,19 +20,18 @@ export function CommandInput({ onCommand }: CommandInputProps) {
         onCommand(text);
         setText('');
       }}
-      style={{ margin: '0.5rem 0' }}
+      className="command-form"
     >
-      <label>
-        Type a command{' '}
+      <label className="field">
+        <span>Type a command</span>{' '}
         <input
           data-testid="command-input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="pause, skip forward two minutes…"
-          style={{ width: '22rem' }}
         />
       </label>{' '}
-      <button type="submit" data-testid="command-submit">Send</button>
+      <button type="submit" className="btn-primary" data-testid="command-submit">Send</button>
     </form>
   );
 }

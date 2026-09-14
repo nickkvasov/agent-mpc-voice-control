@@ -44,12 +44,12 @@ function formatDuration(seconds: number): string {
 
 export function ResultsView({ results, quota, onQueue, onPlay, onAddToCollection }: ResultsViewProps) {
   return (
-    <section data-testid="results" style={{ margin: '0.5rem 0' }}>
+    <section data-testid="results" className="panel panel-results">
       {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
       <DeclaredTools tools={VIEW_TOOLS.results} />
-      <h2 style={{ fontSize: '1rem' }}>Results</h2>
+      <h2>Results</h2>
       <p data-testid="results-operation">{OPERATION_LABEL[results.operation]}{results.fromCache ? ' (from cache, no allowance spent)' : ''}</p>
-      <p data-testid="results-criteria">Criteria: {describeCriteria(results.criteria)}</p>
+      <p data-testid="results-criteria" className="quiet">Criteria: {describeCriteria(results.criteria)}</p>
       {results.setAsideUnknown > 0 && (
         <p data-testid="results-set-aside">
           {results.setAsideUnknown} result{results.setAsideUnknown === 1 ? '' : 's'} set aside: their length is not yet
@@ -62,25 +62,29 @@ export function ResultsView({ results, quota, onQueue, onPlay, onAddToCollection
           Nothing matches those criteria. That is the filter, not a failure — widen it or start a new search.
         </p>
       ) : (
-        <ol data-testid="results-list">
+        <ol data-testid="results-list" className="rows">
           {results.items.map((v) => (
             <li key={v.videoId} data-testid="result-item">
+              {/* A bare text node, not an element: `text=Play` resolves to the smallest element holding
+                  that text, and a wrapped title such as "Embedded Player" won that match over the button. */}
               {v.title}{' '}
-              <small>
+              <small className="row-meta">
                 ({isUnknown(v.durationSeconds) ? 'length not yet known' : formatDuration(v.durationSeconds as number)})
               </small>{' '}
               {v.availability !== AVAILABILITY.available && v.availability !== AVAILABILITY.unknown && (
                 // FR-036: learned from the player when it refused this video — shown
                 // where the person would try it again, not only in the player's status.
-                <small data-testid="result-unavailable" style={{ color: '#a00' }}>
+                <small data-testid="result-unavailable" className="warn">
                   cannot play here: {AVAILABILITY_LABEL[v.availability]}{' '}
                 </small>
               )}
+              <span className="row-actions">
               <button type="button" onClick={() => onPlay(v.videoId)}>Play</button>{' '}
               <button type="button" onClick={() => onQueue(v.videoId)}>Queue</button>{' '}
               <button type="button" data-testid="add-to-collection" onClick={() => onAddToCollection(v.videoId)}>
                 Add to collection
               </button>
+              </span>
             </li>
           ))}
         </ol>

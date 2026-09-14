@@ -13,7 +13,7 @@ export interface HistoryControlsProps {
 
 export function HistoryControls({ commandCount, onClear }: HistoryControlsProps) {
   return (
-    <section data-testid="history-controls" style={{ fontSize: '0.85rem', color: '#555', margin: '0.5rem 0' }}>
+    <section data-testid="history-controls" className="history">
       <span data-testid="history-count">
         {commandCount === 0
           ? 'No commands are stored on this device.'

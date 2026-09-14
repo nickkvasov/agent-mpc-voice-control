@@ -21,31 +21,31 @@ export interface RecordViewProps {
 export function RecordView({ entries, onUndo, eligibilityContext = {} }: RecordViewProps) {
   const ordered = [...entries].sort((a, b) => b.sequence - a.sequence);
   return (
-    <section data-testid="activity" style={{ margin: '0.5rem 0' }}>
+    <section data-testid="activity" className="panel">
       {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
       <DeclaredTools tools={VIEW_TOOLS.activity} />
       {/* It records every call, whoever made it. "What the assistant did" counted a typed pause and a
           collection made by hand as the assistant's (demo recording, take 1). */}
-      <h2 style={{ fontSize: '1rem' }}>Activity — by hand and by the assistant ({entries.length})</h2>
+      <h2>Activity — by hand and by the assistant ({entries.length})</h2>
       {ordered.length === 0 ? (
         <p data-testid="activity-empty">Nothing yet.</p>
       ) : (
-        <ol data-testid="activity-list" style={{ paddingLeft: '1.2rem' }}>
+        <ol data-testid="activity-list" className="rows activity-list">
           {ordered.map((e) => {
             const state = eligibility(e, entries, eligibilityContext).state;
             return (
-              <li key={e.entryId} data-testid="activity-entry" data-command-id={e.commandId ?? ''} style={{ marginBottom: '0.4rem' }}>
+              <li key={e.entryId} data-testid="activity-entry" data-command-id={e.commandId ?? ''}>
                 <div data-testid="activity-description">
                   {e.description}
                   {e.result === 'failed' ? ' — refused' : e.result === 'partially_applied' ? ' — partly applied' : ''}
                   {e.undone ? ' — since undone' : ''}
                 </div>
                 {e.failureDetail !== null && (
-                  <div data-testid="activity-detail" style={{ fontSize: '0.85rem', color: '#a00' }}>
+                  <div data-testid="activity-detail" className="activity-detail">
                     {e.failureDetail}
                   </div>
                 )}
-                <div data-testid="activity-undo" style={{ fontSize: '0.85rem', color: '#555' }}>
+                <div data-testid="activity-undo" className="activity-undo">
                   {state === 'undoable' ? (
                     <button type="button" data-testid="undo-button" onClick={() => onUndo(e.entryId)}>
                       Undo

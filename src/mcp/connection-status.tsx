@@ -56,8 +56,9 @@ export function ConnectionStatus({ state, reason }: ConnectionStatusProps) {
     <p
       data-testid="connection-status"
       data-state={state}
-      style={{ fontSize: '0.85rem', color: state === 'unavailable' ? '#a00' : '#555' }}
+      className="connection"
     >
+      <span>
       {label}
       {state === 'unavailable' && (
         <>
@@ -66,6 +67,7 @@ export function ConnectionStatus({ state, reason }: ConnectionStatusProps) {
           <span data-testid="hand-path">Everything here still works by hand.</span>
         </>
       )}
+      </span>
     </p>
   );
 }

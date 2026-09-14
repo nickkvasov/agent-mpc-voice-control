@@ -7,7 +7,7 @@ import type { QuotaView } from './client.ts';
 export function QuotaIndicator({ quota }: { readonly quota: QuotaView }) {
   const remaining = quota.searchCallsRemaining;
   return (
-    <p data-testid="quota" style={{ fontSize: '0.85rem', color: '#555' }}>
+    <p data-testid="quota" className="quiet">
       {remaining === null
         ? 'Searches remaining today: not known yet.'
         : `Searches remaining today: ${String(remaining)} (shared by everyone using this app).`}

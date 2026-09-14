@@ -14,16 +14,16 @@ export function Interpretation({ heard, interpretation, outcome }: Interpretatio
   // quota messages were invisible (Gate C, FR-022).
   if (heard === null && interpretation === null && outcome === null) return null;
   return (
-    <section aria-live="polite" data-testid="interpretation" style={{ border: '1px solid #ccc', padding: '0.5rem', margin: '0.5rem 0' }}>
+    <section aria-live="polite" data-testid="interpretation" className="caption">
       {heard !== null && (
-        <div data-testid="heard">
+        <div data-testid="heard" className="caption-heard">
           Heard: <q>{heard}</q>
         </div>
       )}
       {(heard !== null || interpretation !== null) && (
-        <div data-testid="understood">Understood as: {interpretation ?? <em>not understood</em>}</div>
+        <div data-testid="understood" className="caption-understood">Understood as: {interpretation ?? <em>not understood</em>}</div>
       )}
-      {outcome !== null && <div data-testid="outcome">{outcome}</div>}
+      {outcome !== null && <div data-testid="outcome" className="caption-outcome">{outcome}</div>}
     </section>
   );
 }

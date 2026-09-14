@@ -29,17 +29,18 @@ export function CurationView({
 }: CurationViewProps) {
   const byId = new Map(videos.map((v) => [v.videoId, v]));
   return (
-    <section data-testid="curation" style={{ margin: '0.5rem 0' }}>
+    <section data-testid="curation" className="panel">
       {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
       <DeclaredTools tools={VIEW_TOOLS.curation} />
-      <h2 style={{ fontSize: '1rem' }}>Collections ({collections.length})</h2>
+      <h2>Collections ({collections.length})</h2>
       {storageDurable === false && (
-        <p data-testid="storage-warning" style={{ color: '#a00', fontSize: '0.85rem' }}>
+        <p data-testid="storage-warning" className="quiet warn">
           Storage is unavailable in this browser, so collections will NOT survive a reload.
         </p>
       )}
       <form
         data-testid="collection-form"
+        className="inline-form"
         onSubmit={(e) => {
           e.preventDefault();
           const name = new FormData(e.currentTarget).get('name');
@@ -47,14 +48,14 @@ export function CurationView({
           e.currentTarget.reset();
         }}
       >
-        <label>
-          New collection <input name="name" data-testid="collection-name" placeholder="Favourites" />
+        <label className="field">
+          <span>New collection</span> <input name="name" data-testid="collection-name" placeholder="Favourites" />
         </label>{' '}
         <button type="submit" data-testid="collection-create">Create</button>
       </form>
       {collections.length > 1 && (
-        <label>
-          Add videos to{' '}
+        <label className="field">
+          <span>Add videos to</span>{' '}
           <select
             data-testid="destination"
             value={destination ?? ''}
@@ -69,14 +70,14 @@ export function CurationView({
       {collections.length === 0 ? (
         <p data-testid="collections-empty">No collections yet.</p>
       ) : (
-        <ul data-testid="collections-list">
+        <ul data-testid="collections-list" className="rows">
           {collections.map((c) => (
-            <li key={c.collectionId} data-testid="collection-item">
-              <strong>{c.name}</strong> ({c.videoIds.length}){' '}
+            <li key={c.collectionId} data-testid="collection-item" className="collection">
+              <strong className="row-title">{c.name}</strong> <span className="row-meta">({c.videoIds.length})</span>{' '}
               <button type="button" data-testid="collection-delete" onClick={() => onDelete(c.collectionId)}>
                 Delete
               </button>
-              <ul>
+              <ul className="rows collection-videos">
                 {c.videoIds.map((id) => {
                   const v = byId.get(id);
                   // A member not in the CURRENT results — after a reload, a new
@@ -85,7 +86,7 @@ export function CurationView({
                   if (v === undefined) {
                     return (
                       <li key={id} data-testid="collection-video">
-                        {id} <small style={{ color: '#555' }}>(details not loaded)</small>{' '}
+                        <span className="row-title">{id} <small className="row-meta">(details not loaded)</small></span>{' '}
                         <button
                           type="button"
                           data-testid="remove-from-collection"
@@ -99,15 +100,18 @@ export function CurationView({
                   const shown = displayName(v);
                   return (
                     <li key={id} data-testid="collection-video">
+                      <span className="row-title">
                       {shown.shown}{' '}
                       {shown.isPersonal && (
-                        <small data-testid="personal-label" style={{ color: '#555' }}>
+                        <small data-testid="personal-label" className="row-meta">
                           (your label — the video is still called &ldquo;{v.title}&rdquo; on YouTube)
                         </small>
                       )}
                       {v.tags.length > 0 && (
-                        <small data-testid="video-tags" style={{ color: '#555' }}> · your tags: {v.tags.join(', ')}</small>
-                      )}{' '}
+                        <small data-testid="video-tags" className="row-meta"> · your tags: {v.tags.join(', ')}</small>
+                      )}
+                      </span>{' '}
+                      <span className="row-actions">
                       <button type="button" data-testid="label-video" onClick={() => onLabel(id)}>Label</button>{' '}
                       <button type="button" data-testid="tag-video" onClick={() => onTag(id)}>Tag</button>{' '}
                       <button
@@ -117,6 +121,7 @@ export function CurationView({
                       >
                         Remove
                       </button>
+                      </span>
                     </li>
                   );
                 })}

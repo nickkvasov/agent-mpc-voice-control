@@ -20,22 +20,23 @@ export interface ControlsProps {
 
 export function Controls(p: ControlsProps) {
   return (
-    <section data-testid="controls" style={{ margin: '0.5rem 0' }}>
+    <section data-testid="controls" className="controls">
       {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
       <DeclaredTools tools={VIEW_TOOLS.player} />
-      <div>
+      <div className="transport">
         <button type="button" data-testid="btn-play" onClick={() => p.onCommand('play')}>Play</button>{' '}
         <button type="button" data-testid="btn-pause" onClick={() => p.onCommand('pause')}>Pause</button>{' '}
         <button type="button" data-testid="btn-back" onClick={() => p.onCommand('go back fifteen seconds')}>−15s</button>{' '}
         <button type="button" data-testid="btn-fwd" onClick={() => p.onCommand('skip forward fifteen seconds')}>+15s</button>
       </div>
-      <dl style={{ display: 'grid', gridTemplateColumns: 'auto auto', gap: '0 0.5rem', maxWidth: '24rem' }}>
-        <dt>State</dt><dd data-testid="state">{p.state}</dd>
-        <dt>Position</dt><dd data-testid="position">{Math.round(p.positionSeconds)}s / {Math.round(p.durationSeconds)}s</dd>
-        <dt>Speed</dt><dd data-testid="rate">{p.rate}x</dd>
-        <dt>Volume</dt><dd data-testid="volume">{p.muted ? 'muted' : p.volume}</dd>
-        <dt>Captions</dt><dd data-testid="captions">{p.captionsTrack ?? 'off (unconfirmed)'}</dd>
+      <dl className="readout">
+        <div><dt>State</dt><dd data-testid="state">{p.state}</dd></div>
+        <div><dt>Position</dt><dd data-testid="position">{Math.round(p.positionSeconds)}s / {Math.round(p.durationSeconds)}s</dd></div>
+        <div><dt>Speed</dt><dd data-testid="rate">{p.rate}x</dd></div>
+        <div><dt>Volume</dt><dd data-testid="volume">{p.muted ? 'muted' : p.volume}</dd></div>
+        <div><dt>Captions</dt><dd data-testid="captions">{p.captionsTrack ?? 'off (unconfirmed)'}</dd></div>
       </dl>
+
     </section>
   );
 }
