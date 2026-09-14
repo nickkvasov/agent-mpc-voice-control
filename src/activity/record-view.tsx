@@ -24,7 +24,9 @@ export function RecordView({ entries, onUndo, eligibilityContext = {} }: RecordV
     <section data-testid="activity" style={{ margin: '0.5rem 0' }}>
       {/* This view's tools exist exactly while it is on screen (FR-035, Principle II). */}
       <DeclaredTools tools={VIEW_TOOLS.activity} />
-      <h2 style={{ fontSize: '1rem' }}>What the assistant did ({entries.length})</h2>
+      {/* It records every call, whoever made it. "What the assistant did" counted a typed pause and a
+          collection made by hand as the assistant's (demo recording, take 1). */}
+      <h2 style={{ fontSize: '1rem' }}>Activity — by hand and by the assistant ({entries.length})</h2>
       {ordered.length === 0 ? (
         <p data-testid="activity-empty">Nothing yet.</p>
       ) : (

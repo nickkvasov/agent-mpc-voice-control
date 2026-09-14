@@ -5,9 +5,12 @@ import type { QueueState } from './queue.ts';
 /** FR-020: the queue is visible whenever it changes. */
 export function QueueView({
   queue,
+  titleOf,
   onRemoveEntry,
 }: {
   readonly queue: QueueState;
+  /** The name the rest of the page uses for a video — its label or title — or null when unknown. */
+  readonly titleOf: (videoId: string) => string | null;
   /**
    * By entryId, not position. The same video may be queued twice, and a button
    * bound to an index removes whatever has since moved into that slot.
@@ -25,7 +28,8 @@ export function QueueView({
         <ol data-testid="queue-list">
           {queue.items.map((entry) => (
             <li key={entry.entryId} data-testid="queue-item">
-              {entry.videoId}{' '}
+              {/* A bare id named nothing a person could recognise (demo recording, take 1). */}
+              {titleOf(entry.videoId) ?? entry.videoId}{' '}
               <button type="button" onClick={() => onRemoveEntry(entry.entryId)}>
                 Remove
               </button>

@@ -9,3 +9,6 @@ dev.env
 *.env
 .env*
 !.env.example
+
+# Demo recordings are artifacts, not sources
+.demo/

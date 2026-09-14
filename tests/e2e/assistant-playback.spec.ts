@@ -75,3 +75,15 @@ test('a spent allowance shows the assistant unavailable, and on an idle page it 
   await ask(page, 'say hello once more');
   await sent;
 });
+
+test('a turn that finishes after a newer command does not overwrite that command\'s outcome (demo take 1)', async ({ page }) => {
+  // The status panel reads Heard / Understood as / outcome. The recording showed Heard "pause",
+  // Understood as "Pause playback" — and under it the assistant's message from the OLDER turn.
+  await ask(page, 'go back a little, slowly');
+  await expect(turn(page, 'go back a little, slowly')).toBeVisible({ timeout: 1000 });
+  await ask(page, 'pause');
+  await expect(page.locator('[data-testid="understood"]')).toContainText('Pause playback');
+  await expect(turn(page, 'go back a little, slowly')).toHaveAttribute('data-state', 'done', { timeout: 5000 });
+  await expect(page.locator('[data-testid="heard"]')).toContainText('pause');
+  await expect(page.locator('[data-testid="outcome"]')).not.toContainText('Tried to go back');
+});

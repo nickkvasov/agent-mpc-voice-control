@@ -353,6 +353,17 @@ export function App() {
   queueRef.current = queue;
 
   /**
+   * The command the status panel is about: the most recent one. Anything that
+   * finishes later — a slow turn, a readback — must not write its outcome under
+   * a newer command's "Heard" line. The demo recording showed Heard "pause"
+   * with an older assistant turn's message beneath it.
+   */
+  const latestCommand = useRef<string | null>(null);
+  const outcomeFor = (commandId: string, text: string): void => {
+    if (latestCommand.current === commandId) setOutcome(text);
+  };
+
+  /**
    * A button press: the command is issued NOW, synchronously, so its place in
    * its domain is the moment it was pressed, not the moment it runs.
    */
@@ -365,12 +376,13 @@ export function App() {
     ): Promise<ToolResult<unknown>> => {
       const registry = commands.current as CommandRegistry;
       const command = registry.issue(route);
+      latestCommand.current = command.commandId;
       try {
         const r = await actions[tool](command, input);
-        setOutcome(r.ok ? describeOutcome(r.value) : `Refused: ${r.detail}`);
+        outcomeFor(command.commandId, r.ok ? describeOutcome(r.value) : `Refused: ${r.detail}`);
         return r;
       } catch (cause) {
-        setOutcome(`That command failed: ${String(cause)}`);
+        outcomeFor(command.commandId, `That command failed: ${String(cause)}`);
         throw cause;
       } finally {
         registry.finish(command.commandId);
@@ -387,6 +399,7 @@ export function App() {
       issueText(commands.current as CommandRegistry, route, resolveText, {
         failed: (_command, cause) => setOutcome(`That command failed: ${String(cause)}`),
         run: async (command, text) => {
+          latestCommand.current = command.commandId;
           setHeard(text);
           const m = matchPlaybackCommand(text);
           /**
@@ -424,7 +437,7 @@ export function App() {
             if (!available) {
               // The matcher never guesses, and there is no assistant to ask: refused
               // with the reason it is unavailable (FR-034, FR-037).
-              setOutcome(`Not a playback command, and the assistant is not available (${connectionReasonRef.current ?? 'not connected'}), so nothing was done. Everything here still works by hand.`);
+              outcomeFor(command.commandId, `Not a playback command, and the assistant is not available (${connectionReasonRef.current ?? 'not connected'}), so nothing was done. Everything here still works by hand.`);
               persist('refused', 'no_match');
               return;
             }
@@ -435,7 +448,7 @@ export function App() {
               { commandId: command.commandId, tabId, text },
               (view) => {
                 setTurns((cur) => visibleTurns([view, ...cur.filter((t) => t.commandId !== view.commandId)]));
-                setOutcome(view.state === 'refused' ? `Refused: ${view.refusal?.detail ?? 'no reason given'}` : view.state === 'done' ? (view.messages.at(-1) ?? 'Done.') : TURN_OUTCOME[view.state]);
+                outcomeFor(command.commandId, view.state === 'refused' ? `Refused: ${view.refusal?.detail ?? 'no reason given'}` : view.state === 'done' ? (view.messages.at(-1) ?? 'Done.') : TURN_OUTCOME[view.state]);
                 if (view.refusal?.reason === 'assistant_allowance_spent') setAllowanceRefusal(view.refusal);
               },
               { revoke: () => registry.revoke(command.commandId) },
@@ -458,7 +471,7 @@ export function App() {
             persist('refused', 'handler_threw');
             throw cause;
           }
-          setOutcome(r.ok ? describeDone(r.value) : `Refused: ${r.detail}`);
+          outcomeFor(command.commandId, r.ok ? describeDone(r.value) : `Refused: ${r.detail}`);
           persist(r.ok ? 'applied' : 'refused', r.ok ? null : r.reason);
         },
       });
@@ -622,6 +635,10 @@ export function App() {
       {showQueue && (
         <QueueView
           queue={queue}
+          titleOf={(videoId) => {
+            const v = annotated.find((x) => x.videoId === videoId);
+            return v === undefined ? null : (v.label ?? v.title);
+          }}
           onRemoveEntry={(entryId) => {
             // Removes that ONE occurrence; the queue may hold a video twice.
             const videoId = queueRef.current.items.find((e) => e.entryId === entryId)?.videoId ?? 'unknown';

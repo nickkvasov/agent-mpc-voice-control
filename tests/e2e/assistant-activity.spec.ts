@@ -40,6 +40,11 @@ test('every assistant call appears once under its command, and an assistant entr
   await expect(entries).toHaveCount(2);
   await expect(entries.locator('[data-testid="activity-description"]')).toHaveText([/Seek back 10s/, QUEUED]);
   await expect(page.locator('[data-testid="queue-item"]')).toHaveCount(1);
+  // By title, as the rest of the page names it — the demo recording showed a bare id here.
+  await expect(page.locator('[data-testid="queue-item"]')).toContainText(VIDEO.title);
+  // The record holds hand actions too (the video was loaded by hand), so it must not call itself the assistant's.
+  await expect(page.locator('[data-testid="activity"] h2')).not.toContainText('What the assistant did');
+  await expect(page.locator('[data-testid="activity"] h2')).toContainText('by hand and by the assistant');
 
   await entries.filter({ hasText: QUEUED }).locator('[data-testid="undo-button"]').click();
   await expect(page.locator('[data-testid="queue-item"]')).toHaveCount(0);
