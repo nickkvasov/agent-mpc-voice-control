@@ -56,5 +56,74 @@ export const callsOf = (page, text) => turn(page, text).locator('[data-testid="t
 export const messageOf = async (page, text) =>
   (await turn(page, text).locator('[data-testid="turn-message"]').allInnerTexts()).join(' ').replace(/\s+/g, ' ').trim();
 
-/** Short enough for the two lines the caption band holds at 19px (take 2 clipped mid-sentence at 110). */
-export const clip = (s, n = 190) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+/** Lines a caption screen may use: the harness band is 84px at 19px/1.35, and the skill's rule is two. */
+const CAPTION_LINES = 2;
+
+/**
+ * Splits a caption into screens that each fit the band, measured in the page rather than guessed
+ * from a character count. Whole sentences are kept together where they fit; a sentence too long for
+ * one screen breaks between words, marked "…" at the end of one screen and the start of the next.
+ * Take 5 cut its last caption off mid-sentence with a fixed 230-character clip.
+ */
+export async function captionScreens(page, who, text) {
+  return page.evaluate(([whoArg, raw, lines]) => {
+    // Measured in the REAL bar: a copy with another id lost the harness's id-based styles, measured
+    // an unstyled span against a NaN line height, and split every word onto its own screen. This whole
+    // function runs synchronously, so no frame is painted with a trial text in it; the bar is restored
+    // before returning.
+    const chip = document.querySelector('#__demo_chip');
+    const span = document.querySelector('#__demo_text');
+    const saved = { who: chip.dataset.who, chip: chip.textContent, text: span.textContent };
+    chip.dataset.who = whoArg;
+    chip.textContent = whoArg === 'human' ? 'person' : whoArg;
+    const limit = parseFloat(window.getComputedStyle(span).lineHeight) * lines + 1;
+    if (!Number.isFinite(limit)) throw new Error('caption line height is not measurable');
+    const fits = (t) => { span.textContent = t; return span.getBoundingClientRect().height <= limit; };
+    const restore = (result) => {
+      if (saved.who === undefined) delete chip.dataset.who; else chip.dataset.who = saved.who;
+      chip.textContent = saved.chip;
+      span.textContent = saved.text;
+      return result;
+    };
+
+    const text = raw.replace(/\s+/g, ' ').trim();
+    if (fits(text)) return restore([text]);
+    const sentences = text.match(/[^.!?]+(?:[.!?]+["”’)]*|$)\s*/g).map((s) => s.trim()).filter(Boolean);
+    const screens = [];
+    let current = '';
+    let continues = false; // the current screen starts mid-sentence
+    const flush = (tail) => { screens.push(current + tail); current = ''; };
+    for (const sentence of sentences) {
+      const joined = current === '' ? sentence : `${current} ${sentence}`;
+      if (fits(joined)) { current = joined; continue; }
+      if (current !== '' && fits(sentence)) { flush(''); current = sentence; continue; }
+      // Too long for a screen of its own: break it between words.
+      for (const word of sentence.split(' ')) {
+        const next = current === '' ? (continues ? `… ${word}` : word) : `${current} ${word}`;
+        if (fits(`${next} …`) || current === '') { current = next; continue; }
+        flush(' …');
+        continues = true;
+        current = `… ${word}`;
+      }
+      continues = false;
+    }
+    if (current !== '') screens.push(current);
+    return restore(screens);
+
+  }, [who, text, CAPTION_LINES]);
+}
+
+/**
+ * `say`, but a caption that does not fit the band plays as consecutive screens. Each screen is held
+ * long enough to read (about 15 characters a second, 2.4–5 s); the last keeps the caller's hold, so a
+ * hold of 0 still hands control straight back while an action runs.
+ */
+export const captions = (page, say) => async (who, text, hold = 3200) => {
+  const screens = await captionScreens(page, who, text);
+  for (const [i, screen] of screens.entries()) {
+    const last = i === screens.length - 1;
+    const reading = Math.min(5000, Math.max(2400, screen.length * 65));
+    await say(who, screen, last ? (screens.length === 1 ? hold : Math.max(hold, reading)) : reading);
+  }
+};
+
