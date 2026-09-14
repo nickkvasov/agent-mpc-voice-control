@@ -41,6 +41,12 @@ export const config = {
   preflight,
 };
 
+/** Every generated asset carries the local date and time it was made, so a take never overwrites another: 2026-09-14-1118. */
+export const stamp = (d = new Date()) => {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+};
+
 export const turn = (page, text) =>
   page.locator('[data-testid="assistant-turn"]', { has: page.locator('strong', { hasText: `“${text}”` }) });
 

@@ -1,11 +1,12 @@
 // The end-to-end tour: run from the project root with the stack up (npm run dev:all).
 //   node scripts/demo/tour.mjs
-// Spends about six real assistant turns and one YouTube search. Output: .demo/voice-video-tour.mp4
-import { HARNESS, callsOf, clip, config, turn } from './app.mjs';
+// Spends about six real assistant turns and one YouTube search. Output: .demo/voice-video-tour-<YYYY-MM-DD-HHMM>.mp4
+import { HARNESS, callsOf, clip, config, stamp, turn } from './app.mjs';
 
 const { record, sleep } = await import(HARNESS);
 
-await record({ ...config, name: 'voice-video-tour' }, async ({ page, say, card, ask, turnEnds, humanClick, humanType, point, focus, pan, text }) => {
+await record({ ...config, name: `voice-video-tour-${stamp()}` },
+ async ({ page, say, card, ask, turnEnds, humanClick, humanType, point, focus, pan, text }) => {
   // The browser's own prompt() is how this page asks for a confirmation. A recording does not show
   // native dialogs, so the question is kept and the caption reports it. Answered the way a person
   // would type it.
