@@ -101,5 +101,9 @@ Every caption reads what the page actually shows, so a take reflects that run â€
 ## Known limits
 
 - **Search quota is shared:** YouTube allows 100 searches a day for the whole deployment. Narrowing loaded results spends none, and the page shows what remains.
-- **The assistant can misjudge.** In one recorded take it replied that the queue was not on screen although it was, and queued nothing; the page showed exactly that, and a plainer request worked. Refusals and replies are always shown as they happened.
+- **The assistant can misjudge.** In one recorded take it replied that the queue was not on screen although it was, and queued nothing; the page showed exactly that. The same request worked in every other take. Refusals and replies are always shown as they happened.
 - **Voice depends on the browser.** Without on-device recognition, voice is refused with the reason.
+
+## License
+
+[Apache License 2.0](LICENSE).
